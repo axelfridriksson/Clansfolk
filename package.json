@@ -1,0 +1,23 @@
+{
+  "name": "trimpsclone",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/main.js",
+  "description": "Clansfolk idle game prototype",
+  "scripts": {
+    "dev": "vite",
+    "dev:electron": "VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "electron": "^30.0.0",
+    "vite": "^5.2.0"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}
