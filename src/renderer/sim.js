@@ -11,6 +11,12 @@ const BALANCE = {
   playerDamageScale: 0.6
 };
 
+/**
+ * Advance the simulation by dt seconds.
+ * @param {object} prev
+ * @param {number} [dt=1]
+ * @returns {object}
+ */
 export function simulateTick(prev, dt = 1) {
   const next = { ...prev };
   next.time += dt;
@@ -18,6 +24,7 @@ export function simulateTick(prev, dt = 1) {
   const grassHuts = next.buildings.grasshut || 0;
   const timberHalls = next.buildings.timberhall || 0;
   const longhouses = next.buildings.longhouse || 0;
+  const warcamps = next.buildings.warcamp || 0;
 
   next.unlocks = { ...next.unlocks };
   if (!next.world.enemiesPerZone) {
@@ -27,9 +34,14 @@ export function simulateTick(prev, dt = 1) {
   if (!next.unlocks.buildingsTier1 && grassHuts >= 10) next.unlocks.buildingsTier1 = true;
   if (!next.unlocks.buildingsTier2 && timberHalls >= 8) next.unlocks.buildingsTier2 = true;
   if (!next.unlocks.buildingsTier3 && longhouses >= 6) next.unlocks.buildingsTier3 = true;
+  if (warcamps <= 0) {
+    next.clansfolk.maxArmy = 1;
+  } else {
+    next.clansfolk.maxArmy = 1 + 1 + Math.max(0, warcamps - 1) * 2;
+  }
   const totalClansfolk = next.clansfolk.total + next.clansfolk.army;
   if (!next.unlocks.weapons && totalClansfolk >= 12) next.unlocks.weapons = true;
-  if (!next.unlocks.upgradesTier1 && grassHuts >= 10 && next.world.zone >= 3) next.unlocks.upgradesTier1 = true;
+  if (!next.unlocks.upgradesTier1 && grassHuts >= 10) next.unlocks.upgradesTier1 = true;
   if (!next.unlocks.upgradesTier2 && grassHuts >= 20 && next.world.zone >= 6) next.unlocks.upgradesTier2 = true;
   if (!next.unlocks.travel && next.unlocks.upgradesTier1) next.unlocks.travel = true;
 
@@ -127,6 +139,7 @@ export function simulateTick(prev, dt = 1) {
     if (next.clansfolk.armyHP <= 0) {
       next.clansfolk.army = 0;
       next.clansfolk.armyHP = 0;
+      next.equipment = Object.fromEntries(Object.keys(next.equipment || {}).map(key => [key, 0]));
       next.world.fighting = false;
       next.log = ['Your warband fell. Regroup and try again.', ...next.log].slice(0, 40);
     }

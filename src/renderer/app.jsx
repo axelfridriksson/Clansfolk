@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import stillBg from './assets/images/Still.png';
 import frozenBg from './assets/images/Frozen.png';
 import hellBg from './assets/images/hellvibes.png';
-import { BUILDINGS, JOBS, UPGRADES } from './data.js';
+import { BLACKSMITH_ITEMS, BUILDINGS, JOBS, UPGRADES } from './data.js';
 import { SAVE_KEY, START_STATE } from './models.js';
 import { calcCaps, calcRates, getArmyStats, canAfford, applyCost, loadSave, mergeSave, totalJobs } from './systems.js';
 import { simulateTick } from './sim.js';
@@ -22,10 +22,21 @@ export default function App() {
     return saved ? mergeSave(START_STATE, saved) : START_STATE;
   });
   const [tooltip, setTooltip] = useState(null);
+  const [assignStep, setAssignStep] = useState(1);
 
   const caps = useMemo(() => calcCaps(state), [state.buildings]);
   const rates = useMemo(() => calcRates(state), [state.jobs, state.buildings, state.perks]);
-  const army = useMemo(() => getArmyStats(state), [state.clansfolk, state.jobs, state.perks]);
+  const army = useMemo(() => getArmyStats(state), [state.clansfolk, state.jobs, state.perks, state.equipment]);
+  const activeTab = state.ui?.tab || 'overview';
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'warcamp', label: 'Warcamp' },
+    { id: 'travel', label: 'Travel' }
+  ];
+  const blacksmithItems = Object.entries(BLACKSMITH_ITEMS)
+    .map(([id, item]) => ({ id, ...item }))
+    .filter(item => !item.unlock || state.unlocks[item.unlock]);
+  const equipItems = blacksmithItems;
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -66,27 +77,51 @@ export default function App() {
     setState(prev => ({ ...prev, log: [line, ...prev.log].slice(0, 40) }));
   }
 
+  /**
+   * Adjust assigned workers for a job.
+   * @param {string} job
+   * @param {number} delta
+   */
   function assign(job, delta) {
     setState(prev => {
       const next = { ...prev, jobs: { ...prev.jobs }, clansfolk: { ...prev.clansfolk } };
-      if (delta > 0 && next.clansfolk.idle < delta) return prev;
-      if (delta < 0 && next.jobs[job] < Math.abs(delta)) return prev;
-      next.jobs[job] += delta;
-      next.clansfolk.idle -= delta;
+      const value = Number.isFinite(delta) ? delta : 0;
+      if (value > 0) {
+        const add = Math.min(value, next.clansfolk.idle);
+        if (add <= 0) return prev;
+        next.jobs[job] += add;
+        next.clansfolk.idle = Math.max(0, next.clansfolk.idle - add);
+      } else if (value < 0) {
+        const remove = Math.min(Math.abs(value), next.jobs[job]);
+        if (remove <= 0) return prev;
+        next.jobs[job] -= remove;
+        next.clansfolk.idle += remove;
+      } else {
+        return prev;
+      }
+      if (next.clansfolk.army > 0) {
+        const stats = getArmyStats(next);
+        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
+        next.clansfolk.armyHPMax = stats.hp;
+        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+      }
       return next;
     });
   }
 
+  /**
+   * Build a building or buy an upgrade.
+   * @param {string} type
+   */
   function build(type) {
     const config = BUILDINGS[type] || UPGRADES[type];
     setState(prev => {
       const isUpgrade = Boolean(UPGRADES[type]);
-      if (isUpgrade && config.requires && !prev.upgrades[config.requires]) return prev;
+      if (!hasRequirements(prev, config.requires)) return prev;
       const owned = isUpgrade ? (prev.upgrades[type] || 0) : (prev.buildings[type] || 0);
       const scaledCost = getScaledCost(config.cost, owned, getScale(isUpgrade, config.group));
       if (!canAfford(prev, scaledCost)) return prev;
-      const unlockOnce = ['stoneworking', 'mining', 'ashgathering', 'lorekeeping', 'forgeSteelsword', 'forgeIronshield'];
-      if (isUpgrade && unlockOnce.includes(type) && owned > 0) return prev;
+      if (isUpgrade && config.group === 'Innovation' && owned > 0) return prev;
       const next = {
         ...prev,
         buildings: { ...prev.buildings },
@@ -94,15 +129,7 @@ export default function App() {
         resources: applyCost(prev, scaledCost)
       };
       if (isUpgrade) {
-        if (type === 'forgeSteelsword') {
-          next.unlocks = { ...next.unlocks, steelSwords: true };
-          next.upgrades.woodsword = 0;
-          pushLog('Wood Swords reforged into Steel Swords.');
-        } else if (type === 'forgeIronshield') {
-          next.unlocks = { ...next.unlocks, ironShields: true };
-          next.upgrades.woodshield = 0;
-          pushLog('Wood Shields reforged into Iron Shields.');
-        } else if (type === 'stoneworking') {
+        if (type === 'stoneworking') {
           next.unlocks = { ...next.unlocks, stone: true };
           next.upgrades[type] = 1;
           pushLog('Stone can now be gathered.');
@@ -117,19 +144,144 @@ export default function App() {
         } else if (type === 'lorekeeping') {
           next.unlocks = { ...next.unlocks, knowledge: true };
           next.upgrades[type] = 1;
-          pushLog('Knowledge can now be gathered.');
+          pushLog('Knowledge can now be stored.');
+        } else if (type === 'skaldtraining') {
+          next.unlocks = { ...next.unlocks, lorekeepers: true };
+          next.upgrades[type] = 1;
+          pushLog('Lorekeepers can now be assigned.');
+        } else if (type === 'armory1') {
+          next.unlocks = { ...next.unlocks, weaponTier2: true };
+          next.upgrades[type] = 1;
+          pushLog('Reinforced blacksmith gear unlocked.');
+        } else if (type === 'armory2') {
+          next.unlocks = { ...next.unlocks, weaponTier3: true };
+          next.upgrades[type] = 1;
+          pushLog('Iron blacksmith gear unlocked.');
         } else {
-          next.upgrades[type] = (next.upgrades[type] || 0) + 1;
-          pushLog(`${config.name} upgraded.`);
+          const nextLevel = config.group === 'Innovation' ? 1 : (next.upgrades[type] || 0) + 1;
+          next.upgrades[type] = nextLevel;
+          pushLog(`${config.name} ${config.group === 'Innovation' ? 'acquired' : 'upgraded'}.`);
         }
       } else {
         next.buildings[type] += 1;
         pushLog(`${config.name} constructed.`);
       }
+      if (next.clansfolk.army > 0) {
+        const stats = getArmyStats(next);
+        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
+        next.clansfolk.armyHPMax = stats.hp;
+        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+      }
       return next;
     });
   }
 
+  /**
+   * Craft a blacksmith item and add to inventory.
+   * @param {string} id
+   */
+  function craftItem(id) {
+    const item = blacksmithItems.find(entry => entry.id === id);
+    if (!item) return;
+    setState(prev => {
+      if (!canAfford(prev, item.cost)) return prev;
+      const next = {
+        ...prev,
+        resources: applyCost(prev, item.cost),
+        inventory: { ...prev.inventory }
+      };
+      next.inventory[id] = (next.inventory[id] || 0) + 1;
+      pushLog(`${item.name} crafted.`);
+      return next;
+    });
+  }
+
+  /**
+   * Equip or unequip an item for the warband.
+   * @param {string} id
+   * @param {number} delta
+   */
+  function adjustEquip(id, delta) {
+    setState(prev => {
+      const next = {
+        ...prev,
+        inventory: { ...prev.inventory },
+        equipment: { ...prev.equipment },
+        clansfolk: { ...prev.clansfolk }
+      };
+      const armySize = next.clansfolk.army;
+      const current = next.equipment[id] || 0;
+      const item = BLACKSMITH_ITEMS[id];
+      if (!item) return prev;
+      const slotEquipped = Object.entries(next.equipment).reduce((sum, [equipId, count]) => {
+        const equipItem = BLACKSMITH_ITEMS[equipId];
+        if (!equipItem || equipItem.slot !== item.slot) return sum;
+        return sum + count;
+      }, 0);
+      if (delta > 0) {
+        const available = next.inventory[id] || 0;
+        const maxEquip = Math.max(0, armySize - slotEquipped);
+        const add = Math.min(delta, available, maxEquip);
+        if (add <= 0) return prev;
+        next.inventory[id] = available - add;
+        next.equipment[id] = current + add;
+      } else if (delta < 0) {
+        const remove = Math.min(Math.abs(delta), current);
+        if (remove <= 0) return prev;
+        next.inventory[id] = (next.inventory[id] || 0) + remove;
+        next.equipment[id] = current - remove;
+      } else {
+        return prev;
+      }
+      if (next.clansfolk.army > 0) {
+        const stats = getArmyStats(next);
+        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
+        next.clansfolk.armyHPMax = stats.hp;
+        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+      }
+      return next;
+    });
+  }
+
+  /**
+   * Auto-equip items up to the current warband size.
+   */
+  function autoEquip() {
+    setState(prev => {
+      const next = {
+        ...prev,
+        inventory: { ...prev.inventory },
+        equipment: { ...prev.equipment },
+        clansfolk: { ...prev.clansfolk }
+      };
+      const armySize = next.clansfolk.army;
+      const slots = ['weapon', 'shield', 'armor'];
+      slots.forEach(slot => {
+        const slotItems = blacksmithItems
+          .filter(item => item.slot === slot)
+          .sort((a, b) => ((b.atk || 0) + (b.hp || 0)) - ((a.atk || 0) + (a.hp || 0)));
+        let remaining = armySize;
+        slotItems.forEach(item => {
+          const owned = (next.inventory[item.id] || 0) + (next.equipment[item.id] || 0);
+          const equipCount = Math.min(remaining, owned);
+          next.equipment[item.id] = equipCount;
+          next.inventory[item.id] = owned - equipCount;
+          remaining -= equipCount;
+        });
+      });
+      if (next.clansfolk.army > 0) {
+        const stats = getArmyStats(next);
+        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
+        next.clansfolk.armyHPMax = stats.hp;
+        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+      }
+      return next;
+    });
+  }
+
+  /**
+   * Start combat if a warband exists.
+   */
   function startFight() {
     setState(prev => {
       if (prev.clansfolk.army <= 0) return prev;
@@ -137,23 +289,37 @@ export default function App() {
     });
   }
 
+  /**
+   * Stop combat without changing warband.
+   */
   function stopFight() {
     setState(prev => ({ ...prev, world: { ...prev.world, fighting: false } }));
   }
 
+  /**
+   * Send idle clansfolk into the warband.
+   */
   function sendArmy() {
     setState(prev => {
-      const next = { ...prev, clansfolk: { ...prev.clansfolk } };
+      const next = { ...prev, clansfolk: { ...prev.clansfolk }, equipment: { ...prev.equipment }, inventory: { ...prev.inventory } };
       if (next.clansfolk.idle <= 0) return prev;
       const space = next.clansfolk.maxArmy - next.clansfolk.army;
       if (space <= 0) return prev;
       const reserve = 2;
       const available = Math.max(0, next.clansfolk.total - reserve);
-      const add = Math.min(space, next.clansfolk.idle, available);
+      const requested = Math.max(1, Math.floor(prev.ui?.warbandSend || 1));
+      const add = Math.min(space, next.clansfolk.idle, available, requested);
       if (add <= 0) return prev;
       next.clansfolk.army += add;
       next.clansfolk.total = Math.max(0, next.clansfolk.total - add);
       next.clansfolk.idle = Math.max(0, next.clansfolk.total - totalJobs(next.jobs));
+      Object.keys(next.equipment).forEach(key => {
+        if (next.equipment[key] > next.clansfolk.army) {
+          const excess = next.equipment[key] - next.clansfolk.army;
+          next.equipment[key] = next.clansfolk.army;
+          next.inventory[key] = (next.inventory[key] || 0) + excess;
+        }
+      });
       const stats = getArmyStats(next);
       next.clansfolk.armyHPMax = stats.hp;
       next.clansfolk.armyHP = stats.hp;
@@ -161,19 +327,31 @@ export default function App() {
     });
   }
 
+  /**
+   * Recall the warband back into clansfolk total.
+   */
   function recallArmy() {
     setState(prev => {
-      const next = { ...prev, clansfolk: { ...prev.clansfolk } };
+      const next = { ...prev, clansfolk: { ...prev.clansfolk }, equipment: { ...prev.equipment }, inventory: { ...prev.inventory } };
       if (next.clansfolk.army <= 0) return prev;
       next.clansfolk.total += next.clansfolk.army;
       next.clansfolk.idle = Math.max(0, next.clansfolk.total - totalJobs(next.jobs));
       next.clansfolk.army = 0;
       next.clansfolk.armyHP = 0;
       next.clansfolk.armyHPMax = 0;
+      Object.keys(next.equipment).forEach(key => {
+        if (next.equipment[key] > 0) {
+          next.inventory[key] = (next.inventory[key] || 0) + next.equipment[key];
+          next.equipment[key] = 0;
+        }
+      });
       return next;
     });
   }
 
+  /**
+   * Reset the run and grant remnants based on zone.
+   */
   function prestige() {
     if (state.world.zone < 10) return;
     const remnantsGain = Math.floor(state.world.zone / 5);
@@ -187,6 +365,11 @@ export default function App() {
     });
   }
 
+  /**
+   * Show a tooltip near a target rect.
+   * @param {string} text
+   * @param {DOMRect} rect
+   */
   function showTooltip(text, rect) {
     const padding = 12;
     const width = 520;
@@ -195,15 +378,24 @@ export default function App() {
     setTooltip({ text, left: Math.max(padding, left), top: Math.max(padding, top), width });
   }
 
+  /**
+   * Clear any active tooltip.
+   */
   function hideTooltip() {
     setTooltip(null);
   }
 
+  /**
+   * Clear saved data and reload.
+   */
   function hardRestart() {
     localStorage.removeItem(SAVE_KEY);
     window.location.reload();
   }
 
+  /**
+   * Toggle tutorial guidance on/off.
+   */
   function toggleTutorial() {
     setState(prev => ({
       ...prev,
@@ -211,6 +403,20 @@ export default function App() {
     }));
   }
 
+  /**
+   * Toggle dev mode (show all items).
+   */
+  function toggleDevMode() {
+    setState(prev => ({
+      ...prev,
+      dev: { ...prev.dev, showAll: !prev.dev.showAll }
+    }));
+  }
+
+  /**
+   * Load a preset stage for testing.
+   * @param {number} stage
+   */
   function setStage(stage) {
     const stageState = getStageState(stage);
     localStorage.setItem(SAVE_KEY, JSON.stringify(stageState));
@@ -220,9 +426,34 @@ export default function App() {
   return (
     <>
       <header>
-        <div>
-          <h1>Clansfolk Prototype</h1>
-          <div className="meta">Zone {state.world.zone} · Remnants {state.perks.remnants} · {Math.floor(state.time)}s</div>
+        <div className="header-left">
+          <div>
+            <h1>Clansfolk Prototype</h1>
+            <div className="meta">Zone {state.world.zone} · Remnants {state.perks.remnants} · {Math.floor(state.time)}s</div>
+          </div>
+          <div className="header-resources">
+            {Object.entries(state.resources)
+              .filter(([key]) => isResourceUnlocked(state, key))
+              .map(([key, value]) => (
+                <span key={key} className="resource-chip">
+                  {key.toUpperCase()} {formatShort(value)}
+                </span>
+              ))}
+          </div>
+          <div className="header-tabs">
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                className={`header-tab ${activeTab === tab.id ? 'active' : ''}`}
+                onClick={() => setState(prev => ({
+                  ...prev,
+                  ui: { ...prev.ui, tab: tab.id }
+                }))}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <span className="chip">Prod x{state.perks.prodMult.toFixed(2)}</span>
@@ -236,6 +467,9 @@ export default function App() {
               <button className="ghost" onClick={toggleTutorial}>
                 {state.tutorial.enabled ? 'Disable Tutorial' : 'Enable Tutorial'}
               </button>
+              <button className="ghost" onClick={toggleDevMode}>
+                {state.dev.showAll ? 'Disable Dev Mode' : 'Enable Dev Mode'}
+              </button>
             </div>
           </details>
         </div>
@@ -248,6 +482,9 @@ export default function App() {
               {Object.entries(state.resources)
                 .filter(([key]) => isResourceUnlocked(state, key))
                 .map(([key, value]) => {
+                const baseStorage = getBaseStorage(state, key);
+                const storehouseLevel = state.buildings.storehouse || 0;
+                const storehousePercent = storehouseLevel * 50;
                 const rate = rates[key] || 0;
                 const isCapped = value >= caps[key];
                 const waste = Math.max(0, rate);
@@ -257,12 +494,13 @@ export default function App() {
                   <div key={key} className={`resource-card ${isCapped ? 'capped' : ''}`}>
                     <div className="resource-row">
                       <strong>{key.toUpperCase()}</strong>
-                      <strong className="resource-cap">{Math.floor(value)} / {caps[key]}</strong>
+                      <strong className="resource-cap">{Math.floor(value)} / {caps[key]} storage</strong>
                     </div>
                     <div className="resource-row meta">
                       <span className={isCapped ? 'waste' : ''}>
                         {isCapped ? `Waste ${waste.toFixed(2)} /s` : `+${rate.toFixed(2)} /s${leaderLabel}`}
                       </span>
+                      <span className="storage-meta">Storage boosted by Storehouse</span>
                       <button
                         className={`mini ${isLeaderTask ? 'selected' : ''}`}
                         onClick={() => setState(prev => ({
@@ -298,6 +536,15 @@ export default function App() {
                 <strong>{Math.floor(totalAssigned)}</strong>
               </div>
             </div>
+            <div className="assign-step">
+              <span>Assign</span>
+              <div className="assign-buttons">
+                <button className={`mini ${assignStep === 1 ? 'selected' : ''}`} onClick={() => setAssignStep(1)}>x1</button>
+                <button className={`mini ${assignStep === 5 ? 'selected' : ''}`} onClick={() => setAssignStep(5)}>x5</button>
+                <button className={`mini ${assignStep === 10 ? 'selected' : ''}`} onClick={() => setAssignStep(10)}>x10</button>
+                <button className={`mini ${assignStep === 'max' ? 'selected' : ''}`} onClick={() => setAssignStep('max')}>Max</button>
+              </div>
+            </div>
             <div className="growth-row">
               <span>Next Clansfolk</span>
               <span>{Math.round(state.clansfolk.growthProgress * 100)}%</span>
@@ -314,8 +561,14 @@ export default function App() {
                     <div className="job-header">
                       <span>{job.name} {assigned}</span>
                       <div className="job-controls">
-                        <button className="ghost mini" onClick={() => assign(key, -1)} disabled={assigned < 1}>−</button>
-                        <button className="mini" onClick={() => assign(key, 1)} disabled={state.clansfolk.idle < 1}>+</button>
+                        <button className="ghost mini" onClick={() => assign(key, assignStep === 'max' ? -assigned : -assignStep)} disabled={assigned < 1}>−</button>
+                        <button
+                          className="mini"
+                          onClick={() => assign(key, assignStep === 'max' ? state.clansfolk.idle : assignStep)}
+                          disabled={state.clansfolk.idle < 1}
+                        >
+                          +
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -329,7 +582,7 @@ export default function App() {
           </section>
 
           <section className="panel section">
-            <h2>Buildings & Upgrades</h2>
+            <h2>Buildings & Innovation</h2>
             <div className="buildings-list">
               {Object.entries(buildingGroups).map(([group, items]) => (
                 <details className="build-group" key={group} open>
@@ -339,18 +592,45 @@ export default function App() {
                       const isUpgrade = Boolean(UPGRADES[id]);
                       const owned = isUpgrade ? (state.upgrades[id] || 0) : (state.buildings[id] || 0);
                       const scaledCost = getScaledCost(data.cost, owned, getScale(isUpgrade, data.group));
+                      const tintClass = !isUpgrade ? getBuildingTintClass(id) : '';
+                      const costEntries = Object.entries(scaledCost);
+                      const inlineCost = costEntries.map(([r, v]) => `${v} ${r}`).join(', ');
+                      const stackCost = Boolean(data.icon) && (costEntries.length > 2 || inlineCost.length > 24);
+                      const costLines = stackCost
+                        ? id === 'skaldhall'
+                          ? [
+                            costEntries
+                              .filter(([r]) => r === 'wood' || r === 'stone')
+                              .map(([r, v]) => `${v} ${r}`)
+                              .join(', '),
+                            ...costEntries
+                              .filter(([r]) => r !== 'wood' && r !== 'stone')
+                              .map(([r, v]) => `${v} ${r}`)
+                          ].filter(Boolean)
+                          : costEntries.map(([r, v]) => `${v} ${r}`)
+                        : [inlineCost];
                       return (
-                      <div className="build-row" key={id}>
-                        <div>
-                          <strong>{data.name}</strong>
-                          <div className="cost">Cost: {Object.entries(scaledCost).map(([r, v]) => `${v} ${r}`).join(', ')}</div>
+                      <div
+                        className={`build-row ${tintClass} ${data.icon ? 'has-icon' : ''} ${stackCost ? 'icon-dense' : ''}`}
+                        key={id}
+                        style={data.icon ? { '--card-icon': `url(${data.icon})` } : undefined}
+                      >
+                        <div className="build-info">
+                          <div className="item-title">
+                            <strong>{data.name}</strong>
+                          </div>
+                          <div className={`cost cost-list ${stackCost ? 'stack' : ''}`}>
+                            {costLines.map((line, idx) => (
+                              <span key={`${id}-cost-${idx}`}>{line}</span>
+                            ))}
+                          </div>
                         </div>
                         <div className="build-actions">
                           <span className="owned">{isUpgrade ? 'Level' : 'Owned'} {owned}</span>
                           <span
                             className="tooltip-target"
                             onMouseEnter={(event) => showTooltip(
-                              `${data.detail || data.desc}${data.unlocks ? ` • Unlocks: ${data.unlocks}` : ''}`,
+                              getItemTooltipText(data, id, owned, state),
                               event.currentTarget.getBoundingClientRect()
                             )}
                             onMouseLeave={hideTooltip}
@@ -382,7 +662,9 @@ export default function App() {
           </section>
         </div>
 
-        <div className="center-column">
+        {activeTab === 'overview' ? (
+        <>
+          <div className="center-column">
           <section className="panel center-section world-header">
             <div className="zone-title">
               <div className="zone-name">{zoneName}</div>
@@ -404,6 +686,41 @@ export default function App() {
           </section>
 
           <section className="panel center-section combat-summary">
+            {state.buildings.warcamp > 0 && (
+              <div className="warband-control">
+                <div className="warband-label">Send to Warband</div>
+                <div className="warband-meta">
+                  {(() => {
+                    const reserve = 2;
+                    const available = Math.max(0, state.clansfolk.total - reserve);
+                    const space = state.clansfolk.maxArmy - state.clansfolk.army;
+                    const maxSend = Math.max(0, Math.min(state.clansfolk.idle, available, space));
+                    const value = Math.max(1, Math.min(state.ui.warbandSend || 1, maxSend || 1));
+                    return (
+                      <>
+                        <div className="warband-count">Sending {maxSend === 0 ? 0 : value} clansfolk</div>
+                        <input
+                          type="range"
+                          min={1}
+                          max={Math.max(1, maxSend)}
+                          step={1}
+                          value={maxSend === 0 ? 1 : value}
+                          onChange={(event) => {
+                            const nextValue = Math.max(1, Number(event.target.value || 1));
+                            setState(prev => ({
+                              ...prev,
+                              ui: { ...prev.ui, warbandSend: nextValue }
+                            }));
+                          }}
+                          disabled={maxSend <= 0}
+                        />
+                        <div className="warband-available">Available {maxSend} · Cap {state.clansfolk.maxArmy}</div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
             <div className={`combat-scene ${state.world.fighting ? 'active' : ''}`} style={{ backgroundImage: `url(${scene})` }}>
               <div className={`combat-scene-overlay ${state.world.fighting ? 'active' : ''}`} />
               <div className="combat-scene-actors">
@@ -416,7 +733,8 @@ export default function App() {
             <div className="combat-row">
               <div className="combat-label">Enemy</div>
               <div className="combat-value">
-                {Math.round(state.world.enemyHP)} / {state.world.enemyHPMax} · ATK {state.world.enemyAtk.toFixed(1)} · {state.world.enemyIndex || 1}/{state.world.enemiesPerZone || 5}
+                {Math.round(state.world.enemyHP)} / {state.world.enemyHPMax} · ATK {state.world.enemyAtk.toFixed(1)}
+                <span className="enemy-count">Enemy {state.world.enemyIndex || 1} of {state.world.enemiesPerZone || 5}</span>
               </div>
             </div>
             <div className="bar enemy">
@@ -450,7 +768,7 @@ export default function App() {
           </section>
         </div>
 
-        <div className="right-column">
+          <div className="right-column">
           <section className="panel section">
             <h2>World Modifiers</h2>
             <div className="mod-group">
@@ -536,7 +854,170 @@ export default function App() {
               </div>
             </details>
           </section>
-        </div>
+          </div>
+        </>
+        ) : activeTab === 'warcamp' ? (
+        <>
+          <div className="center-column">
+            <section className="panel center-section warcamp-overview">
+              <div className="placeholder-title">Warcamp</div>
+              <div className="warcamp-stats">
+                <div>
+                  <div className="stat-label">Warband</div>
+                  <div className="stat-value">{state.clansfolk.army} / {state.clansfolk.maxArmy}</div>
+                </div>
+                <div>
+                  <div className="stat-label">Warband HP</div>
+                  <div className="stat-value">{state.clansfolk.armyHP.toFixed(1)} / {state.clansfolk.armyHPMax.toFixed(1)}</div>
+                </div>
+                <div>
+                  <div className="stat-label">Attack</div>
+                  <div className="stat-value">{army.atk.toFixed(1)}</div>
+                </div>
+              </div>
+              <div className="warcamp-equipment">
+                <div className="stat-label">Equip Warband</div>
+                <div className="equipment-list">
+                  {equipItems.map(item => {
+                    const equipped = state.equipment[item.id] || 0;
+                    const stored = state.inventory[item.id] || 0;
+                    const equippedInSlot = Object.entries(state.equipment).reduce((sum, [equipId, count]) => {
+                      const equipItem = BLACKSMITH_ITEMS[equipId];
+                      if (!equipItem || equipItem.slot !== item.slot) return sum;
+                      return sum + count;
+                    }, 0);
+                    const itemStats = [];
+                    if (item.atk) itemStats.push(`+${item.atk} ATK`);
+                    if (item.hp) itemStats.push(`+${item.hp} HP`);
+                    return (
+                      <div className="equipment-row" key={item.id}>
+                        <div>
+                          <div className="item-title">
+                            <strong>{item.name}</strong>
+                          </div>
+                          <div className="cost">Equipped {equipped} · Stored {stored} · {itemStats.join(' ')}</div>
+                        </div>
+                        <div className="build-actions">
+                          <button className="ghost mini" onClick={() => adjustEquip(item.id, -1)} disabled={equipped <= 0}>−</button>
+                          <button className="mini" onClick={() => adjustEquip(item.id, 1)} disabled={stored <= 0 || equippedInSlot >= state.clansfolk.army}>+</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button className="secondary" onClick={autoEquip} disabled={state.clansfolk.army <= 0}>Auto-Equip</button>
+              </div>
+              <div className="warcamp-roster">
+                <div className="stat-label">Warband Roster</div>
+                <div className="roster-grid roster-backdrop" style={{ backgroundImage: `url(${stillBg})` }}>
+                  <div className="roster-dots">
+                    {Array.from({ length: state.clansfolk.army }).map((_, index) => {
+                      const rand = (seed) => {
+                        const value = (Math.sin(seed) * 10000) % 1;
+                        return value < 0 ? value + 1 : value;
+                      };
+                      const baseLeft = 8 + rand(index + 1) * 84;
+                      const baseTop = 160;
+                      const dx = Math.round(60 + rand(index + 21) * 80);
+                      const dy = Math.round(6 + rand(index + 31) * 18);
+                      const delay = rand(index + 41) * 1.2;
+                      const durX = 6 + rand(index + 51) * 4;
+                      const durY = 4 + rand(index + 61) * 3;
+                      return (
+                        <span
+                          key={`dot-${index}`}
+                          className="roster-dot"
+                          style={{
+                            left: `${baseLeft}%`,
+                            top: `${baseTop}px`,
+                            animationDelay: `${delay}s`,
+                            '--dx': `${dx}px`,
+                            '--dy': `${dy}px`,
+                            '--durx': `${durX}s`,
+                            '--dury': `${durY}s`
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                  {state.clansfolk.army === 0 && (
+                    <div className="roster-empty">No clansfolk assigned to the warband yet.</div>
+                  )}
+                </div>
+              </div>
+              <div className="warcamp-inventory">
+                <div className="stat-label">Equipment Inventory</div>
+                <div className="inventory-grid">
+                  {blacksmithItems.map(item => (
+                    <React.Fragment key={`inv-${item.id}`}>
+                      <div>{item.name}</div>
+                      <strong>{state.inventory[item.id] || 0}</strong>
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
+          <div className="right-column">
+            <section className="panel section">
+              <h2>Blacksmith</h2>
+              <div className="buildings-list">
+                {blacksmithItems.map(item => (
+                  <div className="build-row" key={item.id}>
+                    <div>
+                      <div className="item-title">
+                        <strong>{item.name}</strong>
+                      </div>
+                      <div className="cost">Cost: {Object.entries(item.cost).map(([r, v]) => `${v} ${r}`).join(', ')}</div>
+                    </div>
+                    <div className="build-actions">
+                      <span className="owned">Owned {state.inventory[item.id] || 0}</span>
+                      <button className="ghost mini" onClick={() => craftItem(item.id)} disabled={!canAfford(state, item.cost)}>Craft</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+            <section className="panel section">
+              <h2>Command Center</h2>
+              <div className="command-card">
+                <div className="stat-label">Commander</div>
+                <div className="command-hero">
+                  <div className="command-avatar" />
+                  <div>
+                    <div className="command-name">Runa Iceborn</div>
+                    <div className="command-title">Warcamp Warden</div>
+                    <div className="command-traits">
+                      <span>+6% Warband ATK</span>
+                      <span>+10% Rally Speed</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="command-actions">
+                  <button className="ghost mini" disabled>Choose Commander</button>
+                  <button className="ghost mini" disabled>Archive Commander</button>
+                </div>
+                <div className="placeholder-subtitle">Future: unique stats, traits, and persistent legends.</div>
+              </div>
+            </section>
+          </div>
+        </>
+        ) : (
+        <>
+          <div className="center-column">
+            <section className="panel center-section tab-placeholder">
+              <div className="placeholder-title">{tabs.find(tab => tab.id === activeTab)?.label}</div>
+              <div className="placeholder-subtitle">This page is reserved for future systems and detailed views.</div>
+            </section>
+          </div>
+          <div className="right-column">
+            <section className="panel section tab-placeholder">
+              <h2>{tabs.find(tab => tab.id === activeTab)?.label} Notes</h2>
+              <div className="placeholder-subtitle">Context, forecasts, and meta details will live here.</div>
+            </section>
+          </div>
+        </>
+        )}
         {tooltip && (
           <div
             className="floating-tooltip"
@@ -550,6 +1031,11 @@ export default function App() {
   );
 }
 
+/**
+ * Group build items by category for rendering.
+ * @param {Record<string, object>} buildings
+ * @returns {Record<string, Array<{id:string,data:object}>>}
+ */
 function groupBuildings(buildings) {
   const groups = {};
   Object.entries(buildings).forEach(([id, data]) => {
@@ -560,8 +1046,18 @@ function groupBuildings(buildings) {
   return groups;
 }
 
+/**
+ * Return only items that are unlocked/visible for the current state.
+ * @param {Record<string, object>} buildings
+ * @param {Record<string, object>} upgrades
+ * @param {object} state
+ * @returns {Record<string, object>}
+ */
 function getVisibleItems(buildings, upgrades, state) {
   const items = {};
+  if (state.dev?.showAll) {
+    return { ...buildings, ...upgrades };
+  }
   const unlocks = state.unlocks;
 
   Object.entries(buildings).forEach(([id, data]) => {
@@ -569,51 +1065,61 @@ function getVisibleItems(buildings, upgrades, state) {
       items[id] = data;
       return;
     }
-    if ((id === 'timberhall' || id === 'storehouse' || id === 'smokehouse') && unlocks.buildingsTier1) {
+    if (!unlocks.buildingsTier1) return;
+    if (id === 'timberhall') {
       items[id] = data;
       return;
     }
-    if (id === 'longhouse' && unlocks.buildingsTier2) {
+    if ((id === 'smokehouse' || id === 'woodcuttershed') && hasRequirements(state, data.requires)) {
       items[id] = data;
       return;
     }
-    if (id === 'stonekeep' && unlocks.buildingsTier3) {
+    if (!unlocks.buildingsTier2) return;
+    if (id === 'longhouse') {
+      items[id] = data;
+      return;
+    }
+    if ((id === 'storehouse' || id === 'warcamp' || id === 'stonekeep' || id === 'skaldhall') && hasRequirements(state, data.requires)) {
       items[id] = data;
       return;
     }
   });
 
   Object.entries(upgrades).forEach(([id, data]) => {
-    const isForgeUpgrade = id === 'forgeSteelsword' || id === 'forgeIronshield';
-    if (data.group !== 'Weapons' && (state.upgrades[id] || 0) > 0) return;
-    if (data.group === 'Weapons' && !unlocks.weapons) return;
-    if (data.group === 'Upgrades' && !unlocks.upgradesTier1 && !isForgeUpgrade) return;
+    if (data.group === 'Innovation' && (state.upgrades[id] || 0) > 0) return;
+    if (data.group === 'Innovation' && !unlocks.upgradesTier1) return;
     if (data.group === 'Travel' && !unlocks.travel) return;
-    if (data.cost.knowledge && !unlocks.knowledge && id !== 'lorekeeping') return;
-    if (id === 'steelsword' && !unlocks.steelSwords) return;
-    if (id === 'woodsword' && unlocks.steelSwords) return;
-    if (id === 'ironshield' && !unlocks.ironShields) return;
-    if (id === 'woodshield' && unlocks.ironShields) return;
-    if (id === 'forgeSteelsword' && (!unlocks.weapons || unlocks.steelSwords || (state.upgrades.woodsword || 0) < 10)) return;
-    if (id === 'forgeIronshield' && (!unlocks.weapons || unlocks.ironShields || (state.upgrades.woodshield || 0) < 10)) return;
-    if (data.requires && !state.upgrades[data.requires]) return;
-    if (data.group === 'Upgrades' && !unlocks.upgradesTier2) {
+    if (!hasRequirements(state, data.requires)) return;
+    if (data.group === 'Innovation' && !unlocks.upgradesTier2) {
       const tier2 = ['steelhooks', 'fellingaxes'];
       if (tier2.includes(id)) return;
     }
+    if (data.requiresZone && state.world.zone < data.requiresZone) return;
     items[id] = data;
   });
 
   return items;
 }
 
+/**
+ * Get cost scaling factor for an item category.
+ * @param {boolean} isUpgrade
+ * @param {string} group
+ * @returns {number}
+ */
 function getScale(isUpgrade, group) {
   if (!isUpgrade) return 1.08;
-  if (group === 'Weapons') return 1.15;
   if (group === 'Travel') return 1.2;
   return 1.12;
 }
 
+/**
+ * Compute scaled costs based on owned count and scale factor.
+ * @param {Record<string, number>} baseCost
+ * @param {number} owned
+ * @param {number} scale
+ * @returns {Record<string, number>}
+ */
 function getScaledCost(baseCost, owned, scale) {
   const factor = Math.pow(scale, owned);
   const scaled = {};
@@ -623,27 +1129,133 @@ function getScaledCost(baseCost, owned, scale) {
   return scaled;
 }
 
+/**
+ * Build tooltip text for a build/upgrade item.
+ * @param {object} data
+ * @param {string} id
+ * @param {number} owned
+ * @param {object} state
+ * @returns {string}
+ */
+function getItemTooltipText(data, id, owned, state) {
+  if (id === 'smokehouse') {
+    const storehouseMult = 1 + (state.buildings.storehouse || 0) * 0.5;
+    const effective = Math.round(200 * storehouseMult);
+    return `Raises food storage by ${effective} per level (with Storehouse).`;
+  }
+  if (id === 'storehouse') {
+    const bonus = (state.buildings.storehouse || 0) * 50;
+    return `Increases food/wood/stone/metal storage by 50% per level (current +${bonus}%).`;
+  }
+  const base = data.detail || data.desc || '';
+  const unlocks = data.unlocks ? ` • Unlocks: ${data.unlocks}` : '';
+  return `${base}${unlocks}`;
+}
+
+/**
+ * Building-specific visual tint class for build cards.
+ * @param {string} id
+ * @returns {string}
+ */
+function getBuildingTintClass(id) {
+  if (id === 'grasshut' || id === 'timberhall' || id === 'longhouse' || id === 'stonekeep') return 'tint-housing';
+  if (id === 'storehouse' || id === 'smokehouse' || id === 'woodcuttershed') return 'tint-storage';
+  if (id === 'warcamp') return 'tint-warcamp';
+  if (id === 'skaldhall') return 'tint-skald';
+  return '';
+}
+
+/**
+ * Check if a resource is unlocked.
+ * @param {object} state
+ * @param {string} key
+ * @returns {boolean}
+ */
 function isResourceUnlocked(state, key) {
   if (key === 'food' || key === 'wood') return true;
   return Boolean(state.unlocks[key]);
 }
 
+/**
+ * Check if a job is unlocked.
+ * @param {object} state
+ * @param {string} jobKey
+ * @returns {boolean}
+ */
 function isJobUnlocked(state, jobKey) {
   if (jobKey === 'forager' || jobKey === 'woodcutter') return true;
   if (jobKey === 'quarry') return state.unlocks.stone;
   if (jobKey === 'smelter') return state.unlocks.metal;
   if (jobKey === 'ashwalker') return state.unlocks.ash;
-  if (jobKey === 'lorekeeper') return state.unlocks.knowledge;
+  if (jobKey === 'lorekeeper') return state.unlocks.lorekeepers;
+  if (jobKey === 'drillmaster') return (state.buildings.warcamp || 0) > 0;
   return true;
 }
 
+/**
+ * Check if a build/upgrade requirement is satisfied.
+ * Supports strings or arrays, and building/upgrade/unlock keys.
+ * @param {object} state
+ * @param {string|string[]|undefined} requires
+ * @returns {boolean}
+ */
+function hasRequirements(state, requires) {
+  if (!requires) return true;
+  const list = Array.isArray(requires) ? requires : [requires];
+  return list.every(req => {
+    if (state.upgrades[req] !== undefined) return (state.upgrades[req] || 0) > 0;
+    if (state.buildings[req] !== undefined) return (state.buildings[req] || 0) > 0;
+    if (state.unlocks[req] !== undefined) return Boolean(state.unlocks[req]);
+    return false;
+  });
+}
 
+/**
+ * Base storage value before storehouse multiplier.
+ * @param {object} state
+ * @param {string} key
+ * @returns {number}
+ */
+function getBaseStorage(state, key) {
+  if (key === 'food') {
+    return 200 + (state.buildings.smokehouse || 0) * 200;
+  }
+  if (key === 'wood') return 200;
+  if (key === 'stone') return state.unlocks.stone ? 200 : 0;
+  if (key === 'metal') return state.unlocks.metal ? 200 : 0;
+  if (key === 'ash') return state.unlocks.ash ? 100 : 0;
+  if (key === 'knowledge') return state.unlocks.knowledge ? 200 : 0;
+  return 0;
+}
+
+
+/**
+ * Format seconds into m:ss.
+ * @param {number} totalSeconds
+ * @returns {string}
+ */
 function formatTime(totalSeconds) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = Math.floor(totalSeconds % 60);
   return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
 }
 
+/**
+ * Format numbers into short human-readable form (e.g., 1.2k).
+ * @param {number} value
+ * @returns {string}
+ */
+function formatShort(value) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return `${Math.floor(value)}`;
+}
+
+/**
+ * Build a preset state for stage testing.
+ * @param {number} stage
+ * @returns {object}
+ */
 function getStageState(stage) {
   const base = structuredClone(START_STATE);
   if (stage === 1) {
@@ -670,6 +1282,12 @@ function getStageState(stage) {
   return base;
 }
 
+/**
+ * Estimate combat outcome based on DPS comparison.
+ * @param {object} state
+ * @param {{atk:number,hp:number}} army
+ * @returns {{text:string,tone:string}}
+ */
 function getCombatForecast(state, army) {
   if (state.clansfolk.army <= 0) return { text: 'No warband available', tone: 'danger' };
   const playerDps = Math.max(0.01, army.atk * 0.6);
@@ -681,6 +1299,11 @@ function getCombatForecast(state, army) {
   return { text: 'Forecast: Uncertain', tone: 'warn' };
 }
 
+/**
+ * Tutorial milestones and next-step guidance.
+ * @param {object} state
+ * @returns {Array<{key:string,text:string,done:boolean}>}
+ */
 function getMilestones(state) {
   const steps = [
     {
@@ -718,6 +1341,11 @@ function getMilestones(state) {
   return next ? [next] : [];
 }
 
+/**
+ * Zone progress as a 0..1 value across enemies.
+ * @param {object} state
+ * @returns {number}
+ */
 function getZoneProgress(state) {
   const enemies = state.world.enemiesPerZone || 1;
   const idx = Math.max(1, state.world.enemyIndex || 1);
@@ -725,6 +1353,12 @@ function getZoneProgress(state) {
   return Math.min(1, (idx - 1 + current) / enemies);
 }
 
+/**
+ * Pick a combat background image for the current zone.
+ * @param {object} state
+ * @param {number} zoneProgress
+ * @returns {string}
+ */
 function getCombatScene(state, zoneProgress) {
   if (!state.world.fighting) return stillBg;
   if (zoneProgress > 0.75 && state.world.zone >= 6) return hellBg;
@@ -732,6 +1366,11 @@ function getCombatScene(state, zoneProgress) {
   return stillBg;
 }
 
+/**
+ * World modifier rows for right column.
+ * @param {object} state
+ * @returns {object}
+ */
 function getWorldModifiers(state) {
   return {
     production: [

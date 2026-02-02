@@ -5,23 +5,24 @@ export const START_STATE = {
   resources: { food: 0, wood: 0, stone: 0, metal: 0, ash: 0, knowledge: 0 },
   clansfolk: { total: 3, idle: 3, army: 0, maxArmy: 5, growthProgress: 0, armyHP: 0, armyHPMax: 0 },
   jobs: { forager: 0, woodcutter: 0, quarry: 0, smelter: 0, lorekeeper: 0, ashwalker: 0, drillmaster: 0 },
-  buildings: { grasshut: 0, timberhall: 0, longhouse: 0, stonekeep: 0, storehouse: 0, smokehouse: 0 },
+  buildings: { grasshut: 0, timberhall: 0, longhouse: 0, stonekeep: 0, storehouse: 0, smokehouse: 0, woodcuttershed: 0, warcamp: 0, skaldhall: 0 },
   upgrades: {
-    woodsword: 0,
-    steelsword: 0,
-    woodshield: 0,
-    ironshield: 0,
-    woolarmor: 0,
     nets: 0,
     steelhooks: 0,
     axes: 0,
     fellingaxes: 0,
+    woodcutting1: 0,
+    sheepfarming: 0,
+    agriculture: 0,
     scholars: 0,
     growthrites: 0,
     stoneworking: 0,
     mining: 0,
     ashgathering: 0,
     lorekeeping: 0,
+    skaldtraining: 0,
+    armory1: 0,
+    armory2: 0,
     longboats: 0,
     icesleds: 0,
     workrhythm: 0
@@ -36,14 +37,37 @@ export const START_STATE = {
     upgradesTier1: false,
     upgradesTier2: false,
     travel: false,
-    steelSwords: false,
-    ironShields: false,
     stone: false,
     metal: false,
     ash: false,
-    knowledge: false
+    knowledge: false,
+    lorekeepers: false,
+    weaponTier2: false,
+    weaponTier3: false
   },
   stats: { totalKills: 0 },
+  inventory: {
+    woodsword: 0,
+    woodshield: 0,
+    woolarmor: 0,
+    reinforcedsword: 0,
+    reinforcedshield: 0,
+    paddedarmor: 0,
+    ironsword: 0,
+    ironshield: 0,
+    chainarmor: 0
+  },
+  equipment: {
+    woodsword: 0,
+    woodshield: 0,
+    woolarmor: 0,
+    reinforcedsword: 0,
+    reinforcedshield: 0,
+    paddedarmor: 0,
+    ironsword: 0,
+    ironshield: 0,
+    chainarmor: 0
+  },
   tutorial: {
     enabled: true,
     steps: {
@@ -54,6 +78,9 @@ export const START_STATE = {
       zone: false
     }
   },
+  dev: {
+    showAll: false
+  },
   log: ['The long voyage ends. Three clansfolk step onto a cold shore.'],
-  ui: { tab: 'base', leaderTask: null }
+  ui: { tab: 'overview', leaderTask: null, warbandSend: 1 }
 };
