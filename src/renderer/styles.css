@@ -197,19 +197,111 @@ header .meta {
   gap: 10px;
 }
 
-.equipment-list {
+.equipment-summary {
   display: grid;
-  gap: 10px;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(10, 13, 20, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.equipment-row {
-  display: flex;
+.equipment-summary-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.summary-label {
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.summary-value {
+  color: var(--text);
+  text-align: left;
+  min-width: 0;
+}
+
+.summary-count {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-bar {
+  grid-column: 1 / -1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.summary-bar > div {
+  height: 100%;
+  background: linear-gradient(120deg, #e3b261, #f0c27b);
+}
+
+.equipment-tiers {
+  display: grid;
+  gap: 12px;
+}
+
+.equipment-tier {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
   border-radius: 14px;
   background: rgba(11, 14, 20, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tier-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tier-items {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tier-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(8, 10, 16, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tier-item.equipped {
+  border-color: rgba(227, 178, 97, 0.45);
+  box-shadow: 0 0 0 1px rgba(227, 178, 97, 0.15), 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.equip-controls {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.tier-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.equip-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .warcamp-roster {
@@ -509,6 +601,13 @@ header .meta {
   align-items: center;
   justify-content: space-between;
   font-size: 12px;
+}
+
+.job-cap {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 11px;
+  margin-left: 6px;
 }
 
 .job-controls {
@@ -869,6 +968,11 @@ button:active:not(:disabled) {
   color: var(--muted);
 }
 
+.combat-summary .combat-row.sub {
+  font-size: 11px;
+  color: #8e95a3;
+}
+
 .combat-summary .combat-value {
   color: var(--text);
 }
@@ -891,11 +995,44 @@ button:active:not(:disabled) {
   color: var(--danger);
 }
 
+.combat-times {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #8e95a3;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.combat-outcome {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.combat-outcome.good {
+  color: var(--good);
+}
+
+.combat-outcome.warn {
+  color: var(--warn);
+}
+
+.combat-outcome.danger {
+  color: var(--danger);
+}
+
 .combat-actions {
   display: flex;
   gap: 8px;
 }
 
+.combat-stance {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  text-transform: capitalize;
+}
 .warband-control {
   display: grid;
   gap: 6px;
@@ -1059,6 +1196,12 @@ button:active:not(:disabled) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.prestige-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .cycle-title {
@@ -1311,4 +1454,137 @@ button:active:not(:disabled) {
   max-height: calc(100vh - 90px);
   overflow-y: auto;
   padding-right: 6px;
+}
+
+.rites-panel .panel-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.rites-panel .panel-subtitle {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.9rem;
+}
+
+.rites-patrons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.patron-card {
+  background: rgba(8, 12, 18, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 170px;
+}
+
+.patron-card.active {
+  border-color: rgba(214, 173, 86, 0.6);
+  box-shadow: 0 0 0 1px rgba(214, 173, 86, 0.3) inset;
+}
+
+.patron-card.selected {
+  border-color: rgba(122, 188, 255, 0.6);
+  box-shadow: 0 0 0 1px rgba(122, 188, 255, 0.3) inset;
+}
+
+.patron-title {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.patron-desc {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.9rem;
+}
+
+.patron-detail {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.85rem;
+}
+
+.patron-card .mini {
+  align-self: flex-start;
+}
+
+.rites-summary {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.rites-note {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.9rem;
+}
+
+.ritual-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.ritual-panel {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 12, 18, 0.7);
+  display: grid;
+  gap: 8px;
+}
+
+.ritual-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.ritual-meter {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.ritual-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(214, 173, 86, 0.35);
+}
+
+.ritual-pointer {
+  position: absolute;
+  top: -4px;
+  width: 2px;
+  height: 20px;
+  background: #f7d38a;
+  box-shadow: 0 0 6px rgba(247, 211, 138, 0.6);
+  left: 0;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.ritual-hint {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 1200px) {
+  .rites-patrons {
+    grid-template-columns: 1fr;
+  }
 }

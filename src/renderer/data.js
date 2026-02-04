@@ -7,36 +7,88 @@ import woodcuttersShedIcon from './assets/icons/woodcutters_shed.png';
 import storehouseIcon from './assets/icons/storehouse.png';
 import skaldHallIcon from './assets/icons/skaldhall.png';
 
+export const PATRONS = [
+  {
+    id: 'hearth',
+    name: 'Hearthwarden',
+    desc: 'Ritual reward: +10% food, +10% wood, +10% growth',
+    detail: 'The hearth keeps the clansfolk fed and growing.',
+    cost: { ash: 40 },
+    effects: { foodMult: 0.1, woodMult: 0.1, growthMult: 0.1 }
+  },
+  {
+    id: 'storm',
+    name: 'Stormbound',
+    desc: 'Ritual reward: +12% warband ATK, +8% warband HP',
+    detail: 'The storm hardens the warband for battle.',
+    cost: { ash: 50 },
+    effects: { atkMult: 0.12, hpMult: 0.08 }
+  },
+  {
+    id: 'veil',
+    name: 'Veil of Ash',
+    desc: 'Ritual reward: +20% knowledge, +20% ash gain',
+    detail: 'The ash remembers. Knowledge and embers linger.',
+    cost: { ash: 45 },
+    effects: { knowledgeMult: 0.2, ashGainMult: 0.2 }
+  }
+];
+
+export const RITES_BUILDINGS = {
+  ashshrine: {
+    name: 'Ash Shrine',
+    desc: '+6% patron effect per level',
+    detail: 'Deepens your chosen patron’s gifts.',
+    cost: { ash: 35, wood: 80 },
+    scale: 1.18
+  },
+  embercairn: {
+    name: 'Ember Cairn',
+    desc: '+50 ash storage per level',
+    detail: 'Holds more ash and keeps embers from blowing away.',
+    cost: { ash: 50, stone: 90 },
+    scale: 1.2
+  },
+  hymnhall: {
+    name: 'Hymn Hall',
+    desc: '+8% growth per level',
+    detail: 'Steadies clansfolk growth through ritual.',
+    cost: { ash: 60, food: 120, wood: 70 },
+    scale: 1.2
+  }
+};
+
 export const BUILDINGS = {
-  grasshut: { name: 'Grass Huts', desc: '+4 Clansfolk cap', detail: 'Adds room for 4 more clansfolk.', cost: { wood: 20, food: 10 }, group: 'Buildings', unlocks: 'Timber Halls', icon: grassHutIcon },
-  timberhall: { name: 'Timber Halls', desc: '+6 Clansfolk cap', detail: 'Adds room for 6 more clansfolk.', cost: { wood: 60, food: 30 }, group: 'Buildings', unlocks: 'Longhouse', icon: timberHallsIcon },
-  longhouse: { name: 'Longhouse', desc: '+8 Clansfolk cap', detail: 'Adds room for 8 more clansfolk.', cost: { wood: 120, food: 60 }, group: 'Buildings', unlocks: 'Warcamp, Storehouse' },
-  stonekeep: { name: 'Stone Keep', desc: '+10 Clansfolk cap', detail: 'Adds room for 10 more clansfolk.', cost: { wood: 180, stone: 120 }, group: 'Buildings', requires: ['longhouse', 'sheepfarming'], icon: stonekeepIcon },
-  storehouse: { name: 'Storehouse', desc: '+50% resource cap per level', detail: 'Increases food/wood/stone/metal caps by 50% per level.', cost: { wood: 180, stone: 120 }, group: 'Buildings', requires: 'longhouse', icon: storehouseIcon },
-  smokehouse: { name: 'Smokehouse', desc: '+200 food cap', detail: 'Raises food storage by 200.', cost: { wood: 80, food: 60 }, group: 'Buildings', requires: 'nets', icon: smokehouseIcon },
-  woodcuttershed: { name: 'Woodcutter\'s Shed', desc: '+200 wood storage', detail: 'Raises wood storage by 200.', cost: { wood: 120, food: 40 }, group: 'Buildings', requires: 'axes', icon: woodcuttersShedIcon },
-  warcamp: { name: 'Warcamp', desc: '+1 warband slot first, then +2 per level', detail: 'Expands the warband cap.', cost: { wood: 140, food: 80 }, group: 'Buildings', requires: 'longhouse', icon: warcampIcon },
-  skaldhall: { name: 'Skald Hall', desc: '+200 knowledge storage per level', detail: 'Increases knowledge storage by 200 per level.', cost: { wood: 160, stone: 100, knowledge: 20 }, group: 'Buildings', requires: 'lorekeeping', icon: skaldHallIcon }
+  grasshut: { name: 'Grass Huts', desc: '+4 Clansfolk cap', detail: 'Adds room for 4 more clansfolk.', cost: { wood: 90, food: 45 }, group: 'Buildings', unlocks: 'Timber Halls', icon: grassHutIcon, scale: 1.03 },
+  timberhall: { name: 'Timber Halls', desc: '+6 Clansfolk cap', detail: 'Adds room for 6 more clansfolk.', cost: { wood: 180, food: 90 }, group: 'Buildings', unlocks: 'Longhouse', icon: timberHallsIcon },
+  longhouse: { name: 'Longhouse', desc: '+8 Clansfolk cap', detail: 'Adds room for 8 more clansfolk.', cost: { wood: 280, food: 140 }, group: 'Buildings', unlocks: 'Warcamp, Storehouse' },
+  stonekeep: { name: 'Stone Keep', desc: '+10 Clansfolk cap', detail: 'Adds room for 10 more clansfolk.', cost: { wood: 420, stone: 240 }, group: 'Buildings', requires: ['longhouse', 'sheepfarming'], icon: stonekeepIcon },
+  storehouse: { name: 'Storehouse', desc: '+50% resource cap per level', detail: 'Increases food/wood/stone/metal caps by 50% per level.', cost: { wood: 240, stone: 160 }, group: 'Buildings', requires: 'longhouse', icon: storehouseIcon },
+  smokehouse: { name: 'Smokehouse', desc: '+200 food cap', detail: 'Raises food storage by 200.', cost: { wood: 120, food: 80 }, group: 'Buildings', requires: 'nets', icon: smokehouseIcon, scale: 1.12 },
+  woodcuttershed: { name: 'Woodcutter\'s Shed', desc: '+200 wood storage', detail: 'Raises wood storage by 200.', cost: { wood: 140, food: 60 }, group: 'Buildings', requires: 'axes', icon: woodcuttersShedIcon, scale: 1.12 },
+  warcamp: { name: 'Warcamp', desc: '+1 warband slot first, then +2 per level', detail: 'Expands the warband cap.', cost: { wood: 200, food: 120 }, group: 'Buildings', requires: 'longhouse', icon: warcampIcon },
+  skaldhall: { name: 'Skald Hall', desc: '+200 knowledge storage per level', detail: 'Increases knowledge storage by 200 per level.', cost: { wood: 200, stone: 140, knowledge: 25 }, group: 'Buildings', requires: 'lorekeeping', icon: skaldHallIcon }
 };
 
 export const UPGRADES = {
-  nets: { name: 'Fishing Nets', desc: '+10% food production per level', detail: 'Each level makes food gathering 10% faster.', cost: { food: 80, wood: 60, knowledge: 5 }, group: 'Innovation', unlocks: 'Smokehouse' },
+  nets: { name: 'Fishing Nets', desc: '+10% food production per level', detail: 'Each level makes food gathering 10% faster.', cost: { food: 100, wood: 80, knowledge: 5 }, group: 'Innovation', unlocks: 'Smokehouse' },
   steelhooks: { name: 'Steel Hooks', desc: '+20% food production per level', detail: 'Each level makes food gathering 20% faster.', cost: { metal: 80, wood: 80, knowledge: 10 }, group: 'Innovation', requires: 'nets' },
-  axes: { name: 'Sharpened Axes', desc: '+10% wood production per level', detail: 'Each level makes wood gathering 10% faster.', cost: { wood: 90, food: 40, knowledge: 5 }, group: 'Innovation', unlocks: 'Woodcutter\'s Shed' },
+  axes: { name: 'Sharpened Axes', desc: '+10% wood production per level', detail: 'Each level makes wood gathering 10% faster.', cost: { wood: 100, food: 60, knowledge: 5 }, group: 'Innovation', unlocks: 'Woodcutter\'s Shed' },
   fellingaxes: { name: 'Felling Axes', desc: '+20% wood production per level', detail: 'Each level makes wood gathering 20% faster.', cost: { wood: 140, stone: 80, knowledge: 10 }, group: 'Innovation', requires: 'axes' },
-  woodcutting1: { name: 'Woodcutting I', desc: '+12% wood production per level', detail: 'Woodcutters work 12% faster per level.', cost: { wood: 120, food: 60, knowledge: 6 }, group: 'Innovation', requires: 'woodcuttershed' },
+  woodcutting1: { name: 'Woodcutting I', desc: '+12% wood production per level', detail: 'Woodcutters work 12% faster per level.', cost: { wood: 120, food: 80, knowledge: 6 }, group: 'Innovation', requires: 'woodcuttershed' },
   sheepfarming: { name: 'Sheep Farming', desc: 'Unlocks wool gear and agriculture', detail: 'Enables wool armor and agriculture upgrades.', cost: { food: 140, wood: 120, knowledge: 8 }, group: 'Innovation', requires: ['smokehouse', 'woodcutting1'], unlocks: 'Wool Armor, Agriculture, Stone Keep' },
-  agriculture: { name: 'Agriculture', desc: '+15% food production per level', detail: 'Each level makes food gathering 15% faster.', cost: { food: 120, wood: 80, knowledge: 10 }, group: 'Innovation', requires: 'sheepfarming' },
+  agriculture: { name: 'Agriculture', desc: '+15% food production per level', detail: 'Each level makes food gathering 15% faster.', cost: { food: 140, wood: 90, knowledge: 10 }, group: 'Innovation', requires: 'sheepfarming' },
   scholars: { name: 'Skald Scholars', desc: '+10% knowledge production per level', detail: 'Each level makes knowledge gathering 10% faster.', cost: { food: 60, wood: 60, knowledge: 5 }, group: 'Innovation' },
-  growthrites: { name: 'Growth Rites', desc: '+20% clansfolk growth per level', detail: 'Each level fills the growth bar 20% faster.', cost: { food: 100, wood: 80, knowledge: 8 }, group: 'Innovation' },
-  workrhythm: { name: 'Work Rhythm', desc: '+10% worker efficiency per level', detail: 'Each level makes all worker production 10% faster.', cost: { food: 80, wood: 80, knowledge: 8 }, group: 'Innovation' },
-  stoneworking: { name: 'Stoneworking', desc: 'Unlock Stone', detail: 'Enables stone gathering and storage.', cost: { food: 60, wood: 60 }, group: 'Innovation', requires: 'woodcutting1' },
+  growthrites: { name: 'Growth Rites', desc: '+20% clansfolk growth per level', detail: 'Each level fills the growth bar 20% faster.', cost: { food: 120, wood: 90, knowledge: 8 }, group: 'Innovation' },
+  workrhythm: { name: 'Work Rhythm', desc: '+10% worker efficiency per level', detail: 'Each level makes all worker production 10% faster.', cost: { food: 100, wood: 100, knowledge: 8 }, group: 'Innovation' },
+  stoneworking: { name: 'Stoneworking', desc: 'Unlock Stone', detail: 'Enables stone gathering and storage.', cost: { food: 120, wood: 80 }, group: 'Innovation', requires: 'woodcutting1' },
   mining: { name: 'Mining', desc: 'Unlock Metal', detail: 'Enables metal gathering and storage.', cost: { wood: 100, stone: 80 }, group: 'Innovation', requires: 'stoneworking' },
   ashgathering: { name: 'Ash Gathering', desc: 'Unlock Ash', detail: 'Enables ash collection from later zones.', cost: { wood: 120, stone: 120 }, group: 'Innovation', requires: 'mining' },
-  lorekeeping: { name: 'Old World Knowledge', desc: 'Unlock Knowledge', detail: 'Enables knowledge storage and tracking.', cost: { food: 80, wood: 80 }, group: 'Innovation' },
-  skaldtraining: { name: 'Skald Training', desc: 'Unlock Lorekeepers', detail: 'Allows clansfolk to work as lorekeepers.', cost: { food: 100, wood: 100, knowledge: 20 }, group: 'Innovation', requires: 'lorekeeping' },
-  armory1: { name: 'Armory Craft I', desc: 'Unlock Reinforced Gear', detail: 'Unlocks reinforced swords, shields, and armor in the blacksmith.', cost: { wood: 140, stone: 80, knowledge: 20 }, group: 'Innovation', requires: 'stoneworking', requiresZone: 6 },
-  armory2: { name: 'Armory Craft II', desc: 'Unlock Iron Gear', detail: 'Unlocks iron swords, shields, and armor in the blacksmith.', cost: { wood: 180, metal: 140, knowledge: 35 }, group: 'Innovation', requires: 'armory1', requiresZone: 12 },
+  lorekeeping: { name: 'Old World Knowledge', desc: 'Unlock Knowledge', detail: 'Enables knowledge storage and tracking.', cost: { food: 100, wood: 80 }, group: 'Innovation' },
+  skaldtraining: { name: 'Skald Training', desc: 'Unlock Lorekeepers', detail: 'Allows clansfolk to work as lorekeepers.', cost: { food: 120, wood: 100, knowledge: 20 }, group: 'Innovation', requires: 'lorekeeping' },
+  blacksmithing: { name: 'Blacksmithing', desc: 'Unlock Blacksmith', detail: 'Allows crafting weapons and armor.', cost: { wood: 120, stone: 80, knowledge: 15 }, group: 'Innovation', requires: 'stoneworking' },
+  armory1: { name: 'Armory Craft I', desc: 'Unlock Reinforced Gear', detail: 'Unlocks reinforced swords, shields, and armor in the blacksmith.', cost: { wood: 160, stone: 100, knowledge: 20 }, group: 'Innovation', requires: 'stoneworking', requiresZone: 6 },
+  armory2: { name: 'Armory Craft II', desc: 'Unlock Iron Gear', detail: 'Unlocks iron swords, shields, and armor in the blacksmith.', cost: { wood: 200, metal: 150, knowledge: 32 }, group: 'Innovation', requires: 'armory1', requiresZone: 12 },
   longboats: { name: 'Longboats', desc: 'Travel time −20%', detail: 'Warband travel and scouting is 20% faster.', cost: { wood: 120, food: 80, knowledge: 8 }, group: 'Travel', unlocks: 'Ice Sleds' },
   icesleds: { name: 'Ice Sleds', desc: 'Travel time −35%', detail: 'Warband travel and scouting is 35% faster.', cost: { wood: 160, stone: 80, knowledge: 12 }, group: 'Travel', requires: 'longboats' }
 };

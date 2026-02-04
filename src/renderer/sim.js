@@ -1,11 +1,12 @@
-import { clamp, calcCaps, calcRates, getArmyStats, nextEnemy, totalJobs } from './systems.js';
+import { clamp, calcCaps, calcRates, getArmyStats, getReligionBonuses, nextEnemy, totalJobs } from './systems.js';
 
 const BALANCE = {
-  foodPerClansfolk: 0.02,
-  growthBase: 0.06,
-  growthPopScale: 0.02,
-  idleBoostPer: 0.03,
-  idleBoostMax: 10,
+  foodPerClansfolk: 0.25,
+  growthBase: 1 / 120,
+  growthPopScale: 0.0,
+  idleBoostPer: 0.0,
+  idleBoostMax: 0,
+  idleGrowthCap: 20,
   growthBonusPerLevel: 0.2,
   enemyDamageScale: 0.5,
   playerDamageScale: 0.6
@@ -47,6 +48,14 @@ export function simulateTick(prev, dt = 1) {
 
   const nextCaps = calcCaps(next);
   const nextRates = calcRates(next);
+  const religion = getReligionBonuses(next);
+
+  if (next.religion?.blessing?.expiresAt && next.time >= next.religion.blessing.expiresAt) {
+    next.religion = {
+      ...next.religion,
+      blessing: { patron: null, expiresAt: 0 }
+    };
+  }
 
   Object.keys(next.resources).forEach(key => {
     const gain = (nextRates[key] || 0) * dt;
@@ -54,22 +63,22 @@ export function simulateTick(prev, dt = 1) {
   });
 
   const maxPop = 10 + grassHuts * 4 + timberHalls * 6 + longhouses * 8 + (next.buildings.stonekeep || 0) * 10;
-  const growthBonus = 1 + (next.upgrades.growthrites || 0) * BALANCE.growthBonusPerLevel;
+  const growthBonus = (1 + (next.upgrades.growthrites || 0) * BALANCE.growthBonusPerLevel) * (1 + religion.growthMult);
   const foodNeeded = next.clansfolk.total * BALANCE.foodPerClansfolk * dt;
   const availableFood = next.resources.food;
   const consumedFood = Math.min(availableFood, foodNeeded);
   next.resources.food = clamp(availableFood - consumedFood, 0, nextCaps.food);
+  const starvationRatio = foodNeeded > 0 ? Math.max(0, (foodNeeded - consumedFood) / foodNeeded) : 0;
 
-  const surplus = Math.max(0, availableFood - foodNeeded);
-  const surplusFactor = foodNeeded > 0 ? Math.min(1, surplus / foodNeeded) : 0;
-  const idleBoost = Math.min(BALANCE.idleBoostMax, Math.max(0, next.clansfolk.idle)) * BALANCE.idleBoostPer;
-  const idleFactor = 1 + idleBoost;
-  const growthRate = BALANCE.growthBase * (1 + next.clansfolk.total * BALANCE.growthPopScale) * growthBonus * surplusFactor * idleFactor;
+  const idleCount = Math.max(0, next.clansfolk.idle);
+  const idleEffective = Math.min(BALANCE.idleGrowthCap, idleCount);
+  const baseGrowthRate = BALANCE.growthBase * idleEffective * growthBonus;
+  const growthRate = idleCount > 0 && starvationRatio === 0
+    ? baseGrowthRate
+    : 0;
 
   if (next.clansfolk.total < maxPop) {
-    if (surplusFactor > 0) {
-      next.clansfolk.growthProgress = Math.min(1, next.clansfolk.growthProgress + growthRate * dt);
-    }
+    next.clansfolk.growthProgress = Math.min(1, next.clansfolk.growthProgress + growthRate * dt);
     if (next.clansfolk.growthProgress >= 1) {
       next.clansfolk.growthProgress = 0;
       next.clansfolk.total += 1;
@@ -77,6 +86,27 @@ export function simulateTick(prev, dt = 1) {
     }
   } else {
     next.clansfolk.growthProgress = 0;
+  }
+
+  if (starvationRatio > 0 && next.clansfolk.total > 0) {
+    const deathIdleEffective = Math.max(1, idleEffective);
+    const deathRate = BALANCE.growthBase * deathIdleEffective * growthBonus * starvationRatio;
+    next.clansfolk.starvationProgress = (next.clansfolk.starvationProgress || 0) + deathRate * dt;
+    if (next.clansfolk.starvationProgress >= 1) {
+      const loss = Math.floor(next.clansfolk.starvationProgress);
+      next.clansfolk.starvationProgress = next.clansfolk.starvationProgress - loss;
+      next.clansfolk.total = Math.max(0, next.clansfolk.total - loss);
+      const assigned = totalJobs(next.jobs);
+      let deficit = Math.max(0, assigned - next.clansfolk.total);
+      if (deficit > 0) {
+        Object.keys(next.jobs).forEach(key => {
+          if (deficit <= 0) return;
+          const remove = Math.min(deficit, next.jobs[key]);
+          next.jobs[key] -= remove;
+          deficit -= remove;
+        });
+      }
+    }
   }
 
   const assigned = totalJobs(next.jobs);
@@ -96,9 +126,22 @@ export function simulateTick(prev, dt = 1) {
     const armyStats = getArmyStats(next);
     next.clansfolk.armyHPMax = armyStats.hp;
     if (next.clansfolk.armyHP === 0) next.clansfolk.armyHP = armyStats.hp;
-    next.world.enemyHP = Math.max(0, next.world.enemyHP - armyStats.atk * BALANCE.playerDamageScale * dt);
-    const damage = next.world.enemyAtk * BALANCE.enemyDamageScale * dt;
-    next.clansfolk.armyHP = Math.max(0, next.clansfolk.armyHP - damage);
+    const stance = next.ui?.combatStance || 'balanced';
+    const stanceRange = stance === 'aggressive'
+      ? { min: 0.2, max: 0.8 }
+      : stance === 'defensive'
+        ? { min: 0.4, max: 0.5 }
+        : { min: 0.3, max: 0.6 };
+    const playerRoll = stanceRange.min + Math.random() * (stanceRange.max - stanceRange.min);
+    const enemyRoll = 0.85 + Math.random() * 0.3;
+    const playerCrit = Math.random() < 0.05 ? 1.6 : 1;
+    const enemyCrit = Math.random() < 0.03 ? 1.5 : 1;
+    const playerDamage = armyStats.atk * BALANCE.playerDamageScale * dt * playerRoll * playerCrit;
+    const enemyDamage = next.world.enemyAtk * BALANCE.enemyDamageScale * dt * enemyRoll * enemyCrit;
+    next.world.lastWarbandHit = playerDamage;
+    next.world.lastEnemyHit = enemyDamage;
+    next.world.enemyHP = Math.max(0, next.world.enemyHP - playerDamage);
+    next.clansfolk.armyHP = Math.max(0, next.clansfolk.armyHP - enemyDamage);
 
     if (next.world.enemyHP <= 0) {
       next.stats.totalKills += 1;
@@ -111,7 +154,8 @@ export function simulateTick(prev, dt = 1) {
         next.resources.metal = clamp(next.resources.metal + 2 + next.world.zone * 0.6, 0, nextCaps.metal);
       }
       if (next.unlocks.ash) {
-        next.resources.ash = clamp(next.resources.ash + Math.max(0, next.world.zone - 2), 0, nextCaps.ash);
+        const ashGain = Math.max(0, next.world.zone - 2) * (1 + religion.ashGainMult);
+        next.resources.ash = clamp(next.resources.ash + ashGain, 0, nextCaps.ash);
       }
       if (next.unlocks.knowledge) {
         next.resources.knowledge = clamp(next.resources.knowledge + Math.max(0, next.world.zone - 4), 0, nextCaps.knowledge);
@@ -142,6 +186,31 @@ export function simulateTick(prev, dt = 1) {
       next.equipment = Object.fromEntries(Object.keys(next.equipment || {}).map(key => [key, 0]));
       next.world.fighting = false;
       next.log = ['Your warband fell. Regroup and try again.', ...next.log].slice(0, 40);
+    }
+  }
+
+  if (next.religion?.ritual?.active) {
+    next.religion = { ...next.religion, ritual: { ...next.religion.ritual } };
+    next.religion.ritual.timeLeft = Math.max(0, next.religion.ritual.timeLeft - dt);
+    if (next.religion.ritual.timeLeft <= 0) {
+      const success = next.religion.ritual.hits >= next.religion.ritual.required;
+      if (success) {
+        const emberBonus = (next.religion.buildings?.embercairn || 0) * 60;
+        next.religion.blessing = {
+          patron: next.religion.ritual.patron,
+          expiresAt: next.time + 20 * 60 + emberBonus
+        };
+        next.log = [`Ritual succeeded. ${next.religion.ritual.patron} blesses the clansfolk.`, ...next.log].slice(0, 40);
+      } else {
+        next.log = ['Ritual failed. The ashes scatter and fade.', ...next.log].slice(0, 40);
+      }
+      next.religion.ritual = {
+        ...next.religion.ritual,
+        active: false,
+        patron: null,
+        timeLeft: 0,
+        duration: 0
+      };
     }
   }
 
