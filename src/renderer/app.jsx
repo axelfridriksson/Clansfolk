@@ -6,6 +6,16 @@ import { BLACKSMITH_ITEMS, BUILDINGS, JOBS, UPGRADES, PATRONS, RITES_BUILDINGS }
 import { SAVE_KEY, START_STATE } from './models.js';
 import { calcCaps, calcRates, getArmyStats, canAfford, applyCost, loadSave, mergeSave, totalJobs } from './systems.js';
 import { simulateTick } from './sim.js';
+import ArrowDuelCanvas from './components/ArrowDuelCanvas.jsx';
+import ChantMinigame from './components/ChantMinigame.jsx';
+import chant1 from './assets/audio/sfx/chant1.wav';
+import chant2 from './assets/audio/sfx/chant2.wav';
+import chant3 from './assets/audio/sfx/chant3.wav';
+import chant4 from './assets/audio/sfx/chant4.wav';
+import misschant1 from './assets/audio/sfx/misschant1.wav';
+import misschant2 from './assets/audio/sfx/misschant2.wav';
+import misschant3 from './assets/audio/sfx/misschant3.wav';
+import misschant4 from './assets/audio/sfx/misschant4.wav';
 
 const RESOURCE_JOBS = {
   food: 'forager',
@@ -23,8 +33,10 @@ export default function App() {
   });
   const [tooltip, setTooltip] = useState(null);
   const [assignStep, setAssignStep] = useState(1);
-  const ritualMeterRef = useRef(null);
-  const ritualPointerRef = useRef(null);
+  const ritualLaneRef = useRef(null);
+  const ritualTargetRef = useRef(null);
+  const chantHitRef = useRef([]);
+  const chantMissRef = useRef([]);
 
   const caps = useMemo(() => calcCaps(state), [state.buildings, state.unlocks, state.religion]);
   const rates = useMemo(() => calcRates(state), [state.jobs, state.buildings, state.perks, state.religion, state.unlocks]);
@@ -106,13 +118,15 @@ export default function App() {
     const loop = () => {
       if (!running) return;
       const ritual = state.religion?.ritual;
-      const meterEl = ritualMeterRef.current;
-      const pointerEl = ritualPointerRef.current;
-      if (ritual && meterEl && pointerEl) {
-        const rect = meterEl.getBoundingClientRect();
-        const meter = getRitualMeter(performance.now() / 1000, ritual);
-        const maxX = Math.max(0, rect.width - 2);
-        pointerEl.style.transform = `translateX(${meter * maxX}px)`;
+      if (ritual?.type === 'archery') {
+        const laneEl = ritualLaneRef.current;
+        const targetEl = ritualTargetRef.current;
+        if (ritual && laneEl && targetEl) {
+          const rect = laneEl.getBoundingClientRect();
+          const meter = getRitualMeter(performance.now() / 1000, ritual);
+          const maxX = Math.max(0, rect.width - 16);
+          targetEl.style.transform = `translateX(${meter * maxX}px)`;
+        }
       }
       requestAnimationFrame(loop);
     };
@@ -129,6 +143,13 @@ export default function App() {
     }, 6000);
     return () => clearInterval(saveInterval);
   }, [state]);
+
+  useEffect(() => {
+    chantHitRef.current = [chant1, chant2, chant3, chant4].map(src => new Audio(src));
+    chantMissRef.current = [misschant1, misschant2, misschant3, misschant4].map(src => new Audio(src));
+    chantHitRef.current.forEach(audio => { audio.volume = 0.6; });
+    chantMissRef.current.forEach(audio => { audio.volume = 0.6; });
+  }, []);
 
   const totalAssigned = totalJobs(state.jobs);
   const maxTrimps = 10
@@ -335,22 +356,27 @@ export default function App() {
       const shrine = prev.religion.buildings?.ashshrine || 0;
       const hymnhall = prev.religion.buildings?.hymnhall || 0;
       const base = patronId === 'storm'
-        ? { duration: 70, required: 12, period: 2.6, bandCenter: 0.5, bandWidth: 0.12 }
+        ? { duration: 60, required: 3, period: 2.4, bandCenter: 0.5, bandWidth: 0.12, arrows: 6, type: 'archery' }
         : patronId === 'veil'
-          ? { duration: 90, required: 11, period: 3.4, bandCenter: 0.35, bandWidth: 0.14 }
-          : { duration: 80, required: 10, period: 4.2, bandCenter: 0.65, bandWidth: 0.18 };
+          ? { duration: 90, required: 11, period: 3.4, bandCenter: 0.35, bandWidth: 0.14, arrows: 0, type: 'chant' }
+          : { duration: 80, required: 10, period: 4.2, bandCenter: 0.65, bandWidth: 0.18, arrows: 0, type: 'chant' };
       const earlyPenalty = Math.max(0, 3 - (prev.religion?.buildings?.hymnhall || 0)) * 0.02;
       const bandWidth = Math.max(0.06, Math.min(0.45, base.bandWidth - earlyPenalty + shrine * 0.02));
       const requiredBase = base.required + Math.max(0, 3 - (prev.religion?.buildings?.ashshrine || 0));
-      const required = Math.max(4, Math.round(requiredBase * Math.max(0.6, 1 - hymnhall * 0.05)));
+      const required = base.type === 'archery'
+        ? 3
+        : Math.max(4, Math.round(requiredBase * Math.max(0.6, 1 - hymnhall * 0.05)));
       const period = Math.max(1.4, base.period * Math.max(0.6, 1 - hymnhall * 0.03));
-      pushLog('Ritual started. Keep the chant within the omen band.');
+      pushLog(base.type === 'archery'
+        ? 'Ritual started. Throw spears when the target crosses the reticle.'
+        : 'Ritual started. Keep the chant within the omen band.');
       return {
         ...prev,
         religion: {
           ...prev.religion,
           ritual: {
             active: true,
+            type: base.type,
             patron: patronId,
             timeLeft: base.duration,
             duration: base.duration,
@@ -360,7 +386,12 @@ export default function App() {
             period,
             bandCenter: base.bandCenter,
             bandWidth,
-            startTime: performance.now() / 1000
+            startTime: performance.now() / 1000,
+            arrowsLeft: base.arrows,
+            totalArrows: base.arrows,
+            lastResult: '',
+            speedTier: 0,
+            narrowTier: 0
           }
         }
       };
@@ -373,34 +404,29 @@ export default function App() {
   function chantRitual() {
     setState(prev => {
       const ritual = prev.religion?.ritual;
-      if (!ritual?.active) return prev;
+      if (!ritual?.active || ritual.type !== 'chant') return prev;
       const meter = getRitualMeter(performance.now() / 1000, ritual);
       const grace = 0.02;
       const halfWidth = ritual.bandWidth / 2 + grace;
       const inBand = meter >= ritual.bandCenter - halfWidth && meter <= ritual.bandCenter + halfWidth;
+      playChantSfx(inBand);
       const nextHits = Math.max(0, ritual.hits + (inBand ? 1 : -1));
       const nextMisses = ritual.misses + (inBand ? 0 : 1);
       const nextBandCenter = inBand ? 0.08 + Math.random() * 0.84 : ritual.bandCenter;
+      let nextPeriod = ritual.period;
+      let nextBandWidth = ritual.bandWidth;
+      let nextSpeedTier = ritual.speedTier || 0;
+      let nextNarrowTier = ritual.narrowTier || 0;
+      if (inBand && nextHits >= 4 && nextSpeedTier === 0) {
+        nextSpeedTier = 1;
+        nextPeriod = Math.max(1.2, ritual.period * 0.85);
+      }
+      if (inBand && nextHits >= 8 && nextNarrowTier === 0) {
+        nextNarrowTier = 1;
+        nextBandWidth = Math.max(0.05, ritual.bandWidth * 0.55);
+      }
       if (inBand && nextHits >= ritual.required) {
-        const emberBonus = (prev.religion.buildings?.embercairn || 0) * 60;
-        pushLog('Ritual succeeded. The patron answers your call.');
-        return {
-          ...prev,
-          religion: {
-            ...prev.religion,
-            blessing: {
-              patron: ritual.patron,
-              expiresAt: prev.time + 20 * 60 + emberBonus
-            },
-            ritual: {
-              ...ritual,
-              active: false,
-              timeLeft: 0,
-              duration: 0,
-              lastResult: 'Hit'
-            }
-          }
-        };
+        return finishRitual(prev, ritual, true, 'Ritual succeeded. The patron answers your call.');
       }
       return {
         ...prev,
@@ -411,11 +437,86 @@ export default function App() {
             hits: nextHits,
             misses: nextMisses,
             lastResult: inBand ? 'Hit' : 'Miss',
-            bandCenter: nextBandCenter
+            bandCenter: nextBandCenter,
+            period: nextPeriod,
+            bandWidth: nextBandWidth,
+            speedTier: nextSpeedTier,
+            narrowTier: nextNarrowTier
           }
         }
       };
     });
+  }
+
+  function shootRitual() {
+    setState(prev => {
+      const ritual = prev.religion?.ritual;
+      if (!ritual?.active || ritual.type !== 'archery') return prev;
+      if (ritual.arrowsLeft <= 0) return prev;
+      const meter = getRitualMeter(performance.now() / 1000, ritual);
+      const grace = 0.02;
+      const halfWidth = ritual.bandWidth / 2 + grace;
+      const inBand = Math.abs(meter - 0.5) <= halfWidth;
+      const nextHits = Math.max(0, ritual.hits + (inBand ? 1 : -1));
+      const nextMisses = ritual.misses + (inBand ? 0 : 1);
+      const nextArrows = ritual.arrowsLeft - 1;
+      if (inBand && nextHits >= ritual.required) {
+        return finishRitual(prev, ritual, true, 'Ritual succeeded. The storm roars back.');
+      }
+      if (nextArrows <= 0 && nextHits < ritual.required) {
+        return finishRitual(prev, ritual, false, 'Ritual failed. The storm passes unanswered.');
+      }
+      return {
+        ...prev,
+        religion: {
+          ...prev.religion,
+          ritual: {
+            ...ritual,
+            hits: nextHits,
+            misses: nextMisses,
+            arrowsLeft: nextArrows,
+            lastResult: inBand ? 'Hit' : 'Miss'
+          }
+        }
+      };
+    });
+  }
+
+  function finishRitual(prev, ritual, success, message) {
+    const emberBonus = (prev.religion.buildings?.embercairn || 0) * 60;
+    if (success) {
+      pushLog(message);
+      return {
+        ...prev,
+        religion: {
+          ...prev.religion,
+          blessing: {
+            patron: ritual.patron,
+            expiresAt: prev.time + 20 * 60 + emberBonus
+          },
+          ritual: {
+            ...ritual,
+            active: false,
+            timeLeft: 0,
+            duration: 0,
+            lastResult: 'Hit'
+          }
+        }
+      };
+    }
+    pushLog(message);
+    return {
+      ...prev,
+      religion: {
+        ...prev.religion,
+        ritual: {
+          ...ritual,
+          active: false,
+          timeLeft: 0,
+          duration: 0
+        }
+      }
+    };
   }
 
   /**
@@ -814,6 +915,15 @@ export default function App() {
     window.location.reload();
   }
 
+  function playChantSfx(hit) {
+    const bank = hit ? chantHitRef.current : chantMissRef.current;
+    if (!bank || bank.length === 0) return;
+    const pick = bank[Math.floor(Math.random() * bank.length)];
+    if (!pick) return;
+    pick.currentTime = 0;
+    pick.play().catch(() => {});
+  }
+
   return (
     <>
       <header>
@@ -855,6 +965,16 @@ export default function App() {
               <button className="danger" onClick={hardRestart}>Hard Restart</button>
               <button className="ghost" onClick={() => setStage(1)}>Load Stage 1</button>
               <button className="ghost" onClick={() => setStage(2)}>Load Stage 2</button>
+              <button className="ghost" onClick={() => setStage(3)}>Load Stage 3</button>
+              <button
+                className="ghost"
+                onClick={() => setState(prev => ({
+                  ...prev,
+                  resources: { ...prev.resources, ash: (prev.resources.ash || 0) + 200 }
+                }))}
+              >
+                Dev: +200 Ash
+              </button>
               <button className="ghost" onClick={toggleTutorial}>
                 {state.tutorial.enabled ? 'Disable Tutorial' : 'Enable Tutorial'}
               </button>
@@ -1680,11 +1800,6 @@ export default function App() {
                   >
                     {state.religion?.ritual?.active ? 'Ritual Active' : 'Begin Ritual'}
                   </button>
-                  {state.religion?.ritual?.active && (
-                    <button className="ghost mini" onClick={chantRitual}>
-                      Chant
-                    </button>
-                  )}
                 </div>
               </div>
               {state.religion?.ritual?.active && (
@@ -1697,19 +1812,72 @@ export default function App() {
                     <span>Hits</span>
                     <strong>{state.religion.ritual.hits} / {state.religion.ritual.required}</strong>
                   </div>
-                  <div className="ritual-row">
-                    <span>Misses</span>
-                    <strong>{state.religion.ritual.misses}</strong>
-                  </div>
-                  <div className="ritual-row">
-                    <span>Last</span>
-                    <strong>{state.religion.ritual.lastResult || '—'}</strong>
-                  </div>
-                  <div className="ritual-meter" ref={ritualMeterRef}>
-                    <div className="ritual-band" style={getRitualBandStyle(state.religion.ritual)} />
-                    <div className="ritual-pointer" ref={ritualPointerRef} />
-                  </div>
-                  <div className="ritual-hint">Press Chant when the marker hits the omen band.</div>
+                  {state.religion.ritual.type === 'archery' && (
+                    <div className="ritual-row">
+                      <span>Spears</span>
+                      <strong>{state.religion.ritual.arrowsLeft} / {state.religion.ritual.totalArrows}</strong>
+                    </div>
+                  )}
+                  {state.religion.ritual.type === 'archery' ? (
+                    <>
+                      <ArrowDuelCanvas
+                        resetToken={state.religion.ritual.startTime}
+                        onHit={(spearsLeft) => setState(prev => {
+                          const ritual = prev.religion?.ritual;
+                          if (!ritual?.active || ritual.type !== 'archery') return prev;
+                          const nextHits = Math.min(ritual.required, ritual.hits + 1);
+                          return {
+                            ...prev,
+                            religion: {
+                              ...prev.religion,
+                              ritual: {
+                                ...ritual,
+                                hits: nextHits,
+                                arrowsLeft: spearsLeft
+                              }
+                            }
+                          };
+                        })}
+                        onMiss={(spearsLeft) => setState(prev => {
+                          const ritual = prev.religion?.ritual;
+                          if (!ritual?.active || ritual.type !== 'archery') return prev;
+                          return {
+                            ...prev,
+                            religion: {
+                              ...prev.religion,
+                              ritual: {
+                                ...ritual,
+                                arrowsLeft: spearsLeft
+                              }
+                            }
+                          };
+                        })}
+                        onFinalHit={(holdSeconds) => setState(prev => {
+                          const ritual = prev.religion?.ritual;
+                          if (!ritual?.active) return prev;
+                          const holdUntil = performance.now() / 1000 + holdSeconds;
+                          return {
+                            ...prev,
+                            religion: {
+                              ...prev.religion,
+                              ritual: {
+                                ...ritual,
+                                holdUntil,
+                                timeLeft: Math.max(ritual.timeLeft, holdSeconds)
+                              }
+                            }
+                          };
+                        })}
+                        onSuccess={() => setState(prev => finishRitual(prev, prev.religion.ritual, true, 'Ritual succeeded. The storm roars back.'))}
+                        onFail={() => setState(prev => finishRitual(prev, prev.religion.ritual, false, 'Ritual failed. The storm passes unanswered.'))}
+                      />
+                    </>
+                  ) : (
+                    <ChantMinigame
+                      ritual={state.religion.ritual}
+                      onChant={chantRitual}
+                    />
+                  )}
                 </div>
               )}
             </section>
@@ -2071,6 +2239,38 @@ function getStageState(stage) {
     base.unlocks.stone = true;
     base.unlocks.knowledge = true;
     base.log = ['Stage 2: The camp grows into a village.'];
+  }
+  if (stage === 3) {
+    base.resources = { food: 1800, wood: 1800, stone: 1200, metal: 900, ash: 600, knowledge: 400 };
+    base.clansfolk.total = 200;
+    base.clansfolk.idle = 180;
+    base.clansfolk.army = 20;
+    base.buildings = {
+      grasshut: 20,
+      timberhall: 10,
+      longhouse: 6,
+      stonekeep: 4,
+      storehouse: 3,
+      smokehouse: 4,
+      woodcuttershed: 4,
+      warcamp: 3,
+      skaldhall: 2
+    };
+    Object.keys(base.upgrades).forEach((key) => {
+      base.upgrades[key] = 1;
+    });
+    base.unlocks = Object.fromEntries(Object.keys(base.unlocks).map(key => [key, true]));
+    base.inventory = Object.fromEntries(Object.keys(base.inventory).map(key => [key, 6]));
+    base.equipment = Object.fromEntries(Object.keys(base.equipment).map(key => [key, 0]));
+    base.religion = {
+      patron: 'hearth',
+      buildings: { ashshrine: 2, embercairn: 2, hymnhall: 2 },
+      ritual: { ...base.religion.ritual },
+      blessing: { patron: null, expiresAt: 0 }
+    };
+    base.ui = { ...base.ui, selectedPatron: 'hearth' };
+    base.world.zone = 8;
+    base.log = ['Stage 3: All systems unlocked for testing.'];
   }
   return base;
 }

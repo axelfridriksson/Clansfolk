@@ -36,6 +36,7 @@ export const START_STATE = {
     buildings: { ashshrine: 0, embercairn: 0, hymnhall: 0 },
     ritual: {
       active: false,
+      type: 'chant',
       patron: null,
       timeLeft: 0,
       duration: 0,
@@ -46,7 +47,12 @@ export const START_STATE = {
       bandCenter: 0.5,
       bandWidth: 0.14,
       startTime: 0,
-      lastResult: ''
+      arrowsLeft: 0,
+      totalArrows: 0,
+      lastResult: '',
+      holdUntil: 0,
+      speedTier: 0,
+      narrowTier: 0
     },
     blessing: {
       patron: null,

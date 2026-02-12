@@ -1551,29 +1551,138 @@ button:active:not(:disabled) {
   color: rgba(255, 255, 255, 0.7);
 }
 
+.ritual-chant {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0b0f14;
+}
+
+.ritual-chant-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: saturate(1.05) brightness(1);
+  opacity: 1;
+}
+
+.ritual-chant-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(6, 10, 18, 0.3), rgba(6, 10, 18, 0.55)),
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.16), transparent 60%);
+  pointer-events: none;
+}
+
+.ritual-chant-frame {
+  position: relative;
+  padding: 20px;
+  display: grid;
+  gap: 10px;
+  z-index: 1;
+}
+
+.ritual-chant {
+  min-height: 200px;
+}
+
+.ritual-chant-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+}
+
 .ritual-meter {
   position: relative;
-  height: 12px;
+  height: 18px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(8, 12, 18, 0.9);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6);
   overflow: hidden;
+}
+
+.ritual-meter::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  pointer-events: none;
 }
 
 .ritual-band {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgba(214, 173, 86, 0.35);
+  background: linear-gradient(90deg, rgba(214, 173, 86, 0.2), rgba(214, 173, 86, 0.5), rgba(214, 173, 86, 0.2));
+  box-shadow: 0 0 14px rgba(214, 173, 86, 0.35);
 }
 
 .ritual-pointer {
   position: absolute;
-  top: -4px;
-  width: 2px;
-  height: 20px;
+  top: -6px;
+  width: 3px;
+  height: 28px;
   background: #f7d38a;
-  box-shadow: 0 0 6px rgba(247, 211, 138, 0.6);
+  box-shadow: 0 0 10px rgba(247, 211, 138, 0.8);
   left: 0;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.ritual-chant.flash::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 204, 122, 0.35), transparent 60%);
+  animation: chantFlash 0.35s ease-out;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.ritual-chant.flash.tier-2::after {
+  background: radial-gradient(circle at 50% 50%, rgba(255, 240, 180, 0.5), transparent 60%);
+}
+
+@keyframes chantFlash {
+  from { opacity: 0.9; }
+  to { opacity: 0; }
+}
+
+.ritual-lane {
+  position: relative;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.ritual-reticle {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 6px;
+  height: 30px;
+  transform: translateX(-50%);
+  background: rgba(214, 173, 86, 0.5);
+  box-shadow: 0 0 8px rgba(214, 173, 86, 0.6);
+  border-radius: 999px;
+}
+
+.ritual-target {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  width: 16px;
+  height: 14px;
+  border-radius: 6px;
+  background: rgba(160, 210, 255, 0.9);
+  box-shadow: 0 0 6px rgba(160, 210, 255, 0.8);
   transform: translateZ(0);
   will-change: transform;
 }
@@ -1581,6 +1690,60 @@ button:active:not(:disabled) {
 .ritual-hint {
   color: rgba(255, 255, 255, 0.55);
   font-size: 0.8rem;
+}
+
+.arrow-duel {
+  display: grid;
+  gap: 10px;
+  position: relative;
+}
+
+.arrow-duel canvas {
+  width: 100%;
+  max-width: 900px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(8, 12, 18, 0.8);
+}
+.arrow-result {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-26px);
+  font-size: 32px;
+  font-weight: 700;
+  color: #f4e7c8;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.arrow-controls {
+  display: grid;
+  gap: 8px;
+}
+
+.arrow-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 50px;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.arrow-row input[type="range"] {
+  width: 100%;
+}
+
+.arrow-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.arrow-status {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 @media (max-width: 1200px) {

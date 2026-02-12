@@ -191,8 +191,13 @@ export function simulateTick(prev, dt = 1) {
 
   if (next.religion?.ritual?.active) {
     next.religion = { ...next.religion, ritual: { ...next.religion.ritual } };
-    next.religion.ritual.timeLeft = Math.max(0, next.religion.ritual.timeLeft - dt);
-    if (next.religion.ritual.timeLeft <= 0) {
+    const holdUntil = next.religion.ritual.holdUntil || 0;
+    if (holdUntil > next.time) {
+      next.religion.ritual.timeLeft = Math.max(next.religion.ritual.timeLeft, holdUntil - next.time);
+    } else {
+      next.religion.ritual.timeLeft = Math.max(0, next.religion.ritual.timeLeft - dt);
+    }
+    if (next.religion.ritual.timeLeft <= 0 && holdUntil <= next.time) {
       const success = next.religion.ritual.hits >= next.religion.ritual.required;
       if (success) {
         const emberBonus = (next.religion.buildings?.embercairn || 0) * 60;
