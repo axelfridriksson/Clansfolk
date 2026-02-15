@@ -52,6 +52,7 @@ export function mergeSave(base, saved) {
     tutorial: { ...base.tutorial, ...saved.tutorial, steps: { ...base.tutorial.steps, ...saved.tutorial?.steps } },
     dev: { ...base.dev, ...saved.dev },
     stats: { ...base.stats, ...saved.stats },
+    ui: { ...base.ui, ...saved.ui },
     log: saved.log?.slice(-40) || base.log
   };
 }
@@ -105,12 +106,12 @@ export function calcCaps(state) {
   const religion = getReligionBonuses(state);
   const storehouseLevel = state.buildings.storehouse || 0;
   const storehouseMult = 1 + storehouseLevel * 0.5;
-  const baseFood = 200 + (state.buildings.smokehouse || 0) * 200;
-  const baseWood = 200 + (state.buildings.woodcuttershed || 0) * 200;
-  const baseStone = state.unlocks.stone ? 200 : 0;
-  const baseMetal = state.unlocks.metal ? 200 : 0;
+  const baseFood = 200 + (state.buildings.smokehouse || 0) * 200 + (state.buildings.granaryhall || 0) * 250;
+  const baseWood = 200 + (state.buildings.woodcuttershed || 0) * 200 + (state.buildings.timberyard || 0) * 250;
+  const baseStone = state.unlocks.stone ? 200 + (state.buildings.quarrycamp || 0) * 150 + (state.buildings.masonryard || 0) * 150 : 0;
+  const baseMetal = state.unlocks.metal ? 200 + (state.buildings.foundry || 0) * 150 + (state.buildings.smeltery || 0) * 150 : 0;
   const baseKnowledge = (state.unlocks.knowledge ? 200 : 0) + (state.buildings.skaldhall || 0) * 200;
-  const baseAsh = state.unlocks.ash ? 100 : 0;
+  const baseAsh = state.unlocks.ash ? 100 + (state.buildings.ashaltar || 0) * 60 : 0;
   return {
     food: Math.round(baseFood * storehouseMult),
     wood: Math.round(baseWood * storehouseMult),
@@ -128,25 +129,38 @@ export function calcCaps(state) {
  */
 export function calcRates(state) {
   const religion = getReligionBonuses(state);
+  const logisticsPressure = clamp(state.world?.logisticsPressure || 0, 0, 1);
+  const logisticsMitigation = 1 - (state.upgrades.packdiscipline || 0) * 0.25;
+  const effectivePressure = logisticsPressure * Math.max(0.4, logisticsMitigation);
+  const logisticsFactor = Math.max(0.4, 1 - effectivePressure * 0.6);
   const runeProd = 1 + (state.runes?.ember || 0) * 0.02;
   const mult = state.perks.prodMult * runeProd;
   const workMult = 1 + (state.upgrades.workrhythm || 0) * 0.1;
   const foodMult = 1 + (state.upgrades.nets || 0) * 0.1;
   const foodMult2 = 1 + (state.upgrades.steelhooks || 0) * 0.2;
   const foodMult3 = 1 + (state.upgrades.agriculture || 0) * 0.15;
+  const foodMult4 = 1 + (state.upgrades.croprotation || 0) * 0.08;
   const woodMult = 1 + (state.upgrades.axes || 0) * 0.1;
   const woodMult2 = 1 + (state.upgrades.fellingaxes || 0) * 0.2;
   const woodMult3 = 1 + (state.upgrades.woodcutting1 || 0) * 0.12;
-  const knowMult = 1 + (state.upgrades.scholars || 0) * 0.1;
+  const woodMult4 = 1 + (state.upgrades.lumbergrading || 0) * 0.08;
+  const stoneUpgradeMult = 1 + (state.upgrades.stonesurveying || 0) * 0.08;
+  const metalUpgradeMult = 1 + (state.upgrades.bloomerymethods || 0) * 0.08;
+  const knowMult = (1 + (state.upgrades.scholars || 0) * 0.1) * (1 + (state.upgrades.skaldcodex || 0) * 0.15);
+  const stoneCampMult = (1 + (state.buildings.quarrycamp || 0) * 0.12) * (1 + (state.buildings.masonryard || 0) * 0.1);
+  const foundryMult = (1 + (state.buildings.foundry || 0) * 0.12) * (1 + (state.buildings.smeltery || 0) * 0.1);
+  const granaryMult = 1 + (state.buildings.granaryhall || 0) * 0.08;
+  const timberyardMult = 1 + (state.buildings.timberyard || 0) * 0.08;
+  const ashAltarMult = 1 + (state.buildings.ashaltar || 0) * 0.15;
   const leader = state.ui?.leaderTask;
   const leaderBonus = 2;
   return {
-    food: (state.jobs.forager * 1 + (leader === 'food' ? leaderBonus : 0)) * mult * workMult * foodMult * foodMult2 * foodMult3 * (1 + religion.foodMult),
-    wood: (state.jobs.woodcutter * 1 + (leader === 'wood' ? leaderBonus : 0)) * mult * workMult * woodMult * woodMult2 * woodMult3 * (1 + religion.woodMult),
-    stone: state.unlocks.stone ? (state.jobs.quarry * 1 + (leader === 'stone' ? leaderBonus : 0)) * mult * workMult : 0,
-    metal: state.unlocks.metal ? (state.jobs.smelter * 1 + (leader === 'metal' ? leaderBonus : 0)) * mult * workMult : 0,
-    knowledge: state.unlocks.knowledge ? (state.jobs.lorekeeper * 0.5 + (leader === 'knowledge' ? leaderBonus : 0)) * mult * workMult * knowMult * (1 + religion.knowledgeMult) : 0,
-    ash: state.unlocks.ash ? (state.jobs.ashwalker * 1 + (leader === 'ash' ? leaderBonus : 0)) * mult * workMult : 0,
+    food: (state.jobs.forager * 1 + (leader === 'food' ? leaderBonus : 0)) * mult * workMult * foodMult * foodMult2 * foodMult3 * foodMult4 * granaryMult * (1 + religion.foodMult) * logisticsFactor,
+    wood: (state.jobs.woodcutter * 1 + (leader === 'wood' ? leaderBonus : 0)) * mult * workMult * woodMult * woodMult2 * woodMult3 * woodMult4 * timberyardMult * (1 + religion.woodMult) * logisticsFactor,
+    stone: state.unlocks.stone ? (state.jobs.quarry * 1 + (leader === 'stone' ? leaderBonus : 0)) * mult * workMult * stoneUpgradeMult * stoneCampMult * logisticsFactor : 0,
+    metal: state.unlocks.metal ? (state.jobs.smelter * 1 + (leader === 'metal' ? leaderBonus : 0)) * mult * workMult * metalUpgradeMult * foundryMult * logisticsFactor : 0,
+    knowledge: state.unlocks.knowledge ? (state.jobs.lorekeeper * 0.5 + (leader === 'knowledge' ? leaderBonus : 0)) * mult * workMult * knowMult * (1 + religion.knowledgeMult) * logisticsFactor : 0,
+    ash: state.unlocks.ash ? (state.jobs.ashwalker * 1 + (leader === 'ash' ? leaderBonus : 0)) * mult * workMult * ashAltarMult * logisticsFactor : 0,
     attack: state.jobs.drillmaster * 0.06
   };
 }

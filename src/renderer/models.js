@@ -5,13 +5,19 @@ export const START_STATE = {
   resources: { food: 0, wood: 0, stone: 0, metal: 0, ash: 0, knowledge: 0 },
   clansfolk: { total: 3, idle: 3, army: 0, maxArmy: 5, growthProgress: 0, starvationProgress: 0, armyHP: 0, armyHPMax: 0 },
   jobs: { forager: 0, woodcutter: 0, quarry: 0, smelter: 0, lorekeeper: 0, ashwalker: 0, drillmaster: 0 },
-  buildings: { grasshut: 0, timberhall: 0, longhouse: 0, stonekeep: 0, storehouse: 0, smokehouse: 0, woodcuttershed: 0, warcamp: 0, skaldhall: 0 },
+  buildings: { grasshut: 0, timberhall: 0, longhouse: 0, stonekeep: 0, storehouse: 0, smokehouse: 0, woodcuttershed: 0, granaryhall: 0, timberyard: 0, masonryard: 0, smeltery: 0, warcamp: 0, skaldhall: 0, quarrycamp: 0, foundry: 0, ashaltar: 0 },
   upgrades: {
     nets: 0,
     steelhooks: 0,
     axes: 0,
     fellingaxes: 0,
     woodcutting1: 0,
+    croprotation: 0,
+    lumbergrading: 0,
+    stonesurveying: 0,
+    bloomerymethods: 0,
+    packdiscipline: 0,
+    skaldcodex: 0,
     sheepfarming: 0,
     agriculture: 0,
     scholars: 0,
@@ -24,11 +30,32 @@ export const START_STATE = {
     blacksmithing: 0,
     armory1: 0,
     armory2: 0,
+    quarrylogistics: 0,
+    forgeprotocols: 0,
+    ashdoctrine: 0,
     longboats: 0,
     icesleds: 0,
     workrhythm: 0
   },
-  world: { zone: 1, enemyHP: 20, enemyHPMax: 20, enemyAtk: 1, fighting: false, enemiesPerZone: 5, enemyIndex: 1, lastEnemyHit: 0, lastWarbandHit: 0 },
+  world: {
+    zone: 1,
+    enemyHP: 20,
+    enemyHPMax: 20,
+    enemyAtk: 1,
+    fighting: false,
+    enemiesPerZone: 5,
+    enemyIndex: 1,
+    lastEnemyHit: 0,
+    lastWarbandHit: 0,
+    logisticsPressure: 0,
+    expedition: {
+      active: false,
+      type: null,
+      timeLeft: 0,
+      duration: 0,
+      party: 0
+    }
+  },
   perks: { remnants: 0, prodMult: 1, atkMult: 1 },
   runes: { ember: 0, frost: 0 },
   religion: {
@@ -113,5 +140,5 @@ export const START_STATE = {
     showAll: false
   },
   log: ['The long voyage ends. Three clansfolk step onto a cold shore.'],
-  ui: { tab: 'overview', leaderTask: null, warbandSend: 1, craftStep: 1, combatStance: 'balanced', selectedPatron: null }
+  ui: { tab: 'overview', leaderTask: null, warbandSend: 1, craftStep: 1, combatStance: 'balanced', selectedPatron: null, expeditionSend: 1, blacksmithTier: 'wood' }
 };

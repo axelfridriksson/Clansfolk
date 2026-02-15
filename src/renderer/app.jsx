@@ -76,6 +76,14 @@ export default function App() {
       items: ['ironsword', 'ironshield', 'chainarmor']
     }
   ];
+  const availableBlacksmithTiers = equipmentTiers.filter(tier => !tier.unlock || state.unlocks[tier.unlock]);
+  const selectedBlacksmithTier = availableBlacksmithTiers.find(tier => tier.id === state.ui?.blacksmithTier)
+    ? state.ui.blacksmithTier
+    : (availableBlacksmithTiers[0]?.id || 'wood');
+  const blacksmithItemsByTier = blacksmithItems.filter(item => {
+    const tier = equipmentTiers.find(entry => entry.items.includes(item.id));
+    return tier?.id === selectedBlacksmithTier;
+  });
   const ritesBuildings = Object.entries(RITES_BUILDINGS).map(([id, data]) => ({ id, ...data }));
   const patron = PATRONS.find(entry => entry.id === state.religion?.patron);
 
@@ -227,6 +235,7 @@ export default function App() {
     setState(prev => {
       const isUpgrade = Boolean(UPGRADES[type]);
       if (!hasRequirements(prev, config.requires)) return prev;
+      if (config.requiresZone && prev.world.zone < config.requiresZone) return prev;
       const owned = isUpgrade ? (prev.upgrades[type] || 0) : (prev.buildings[type] || 0);
       const scaledCost = getScaledCost(config.cost, owned, getScale(isUpgrade, config.group));
       if (!canAfford(prev, scaledCost)) return prev;
@@ -1203,6 +1212,10 @@ export default function App() {
               <div style={{ width: `${Math.max(0, Math.min(100, zoneProgress * 100))}%` }} />
             </div>
             <div className="blocker">{blocker}</div>
+            <div className="logistics-center-row">
+              <span>Logistics Pressure</span>
+              <strong>{Math.round((state.world.logisticsPressure || 0) * 100)}%</strong>
+            </div>
           </section>
 
           <section className="panel center-section combat-summary">
@@ -1691,8 +1704,25 @@ export default function App() {
                     ))}
                   </div>
                 </div>
+                <div className="assign-step">
+                  <span>Tier</span>
+                  <div className="assign-buttons">
+                    {availableBlacksmithTiers.map((tier, index) => (
+                      <button
+                        key={tier.id}
+                        className={`mini ${selectedBlacksmithTier === tier.id ? 'selected' : ''}`}
+                        onClick={() => setState(prev => ({
+                          ...prev,
+                          ui: { ...prev.ui, blacksmithTier: tier.id }
+                        }))}
+                      >
+                        {`Tier ${index + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="buildings-list">
-                  {blacksmithItems.map(item => (
+                  {blacksmithItemsByTier.map(item => (
                     <div className="build-row" key={item.id}>
                       <div>
                         <div className="item-title">
@@ -1999,7 +2029,7 @@ function getVisibleItems(buildings, upgrades, state) {
       items[id] = data;
       return;
     }
-    if ((id === 'storehouse' || id === 'warcamp' || id === 'stonekeep' || id === 'skaldhall') && hasRequirements(state, data.requires)) {
+    if ((id === 'storehouse' || id === 'warcamp' || id === 'stonekeep' || id === 'skaldhall' || id === 'quarrycamp' || id === 'foundry' || id === 'ashaltar' || id === 'granaryhall' || id === 'timberyard' || id === 'masonryard' || id === 'smeltery') && hasRequirements(state, data.requires)) {
       items[id] = data;
       return;
     }
@@ -2104,6 +2134,33 @@ function getItemTooltipText(data, id, owned, state) {
   if (id === 'skaldhall') {
     return 'Raises knowledge storage by 200 per level.';
   }
+  if (id === 'quarrycamp') {
+    const effectiveCap = Math.round((150 + (state.buildings.storehouse || 0) * 75));
+    return `Raises stone output by 12% and stone storage by about ${effectiveCap} per level.`;
+  }
+  if (id === 'granaryhall') {
+    const effectiveCap = Math.round((250 + (state.buildings.storehouse || 0) * 125));
+    return `Raises food output by 8% and food storage by about ${effectiveCap} per level.`;
+  }
+  if (id === 'timberyard') {
+    const effectiveCap = Math.round((250 + (state.buildings.storehouse || 0) * 125));
+    return `Raises wood output by 8% and wood storage by about ${effectiveCap} per level.`;
+  }
+  if (id === 'masonryard') {
+    const effectiveCap = Math.round((150 + (state.buildings.storehouse || 0) * 75));
+    return `Raises stone output by 10% and stone storage by about ${effectiveCap} per level.`;
+  }
+  if (id === 'smeltery') {
+    const effectiveCap = Math.round((150 + (state.buildings.storehouse || 0) * 75));
+    return `Raises metal output by 10% and metal storage by about ${effectiveCap} per level.`;
+  }
+  if (id === 'foundry') {
+    const effectiveCap = Math.round((150 + (state.buildings.storehouse || 0) * 75));
+    return `Raises metal output by 12% and metal storage by about ${effectiveCap} per level.`;
+  }
+  if (id === 'ashaltar') {
+    return 'Raises ash gain from battle by 15% and ash storage by 60 per level.';
+  }
   if (id === 'storehouse') {
     const bonus = (state.buildings.storehouse || 0) * 50;
     return `Increases food/wood/stone/metal storage by 50% per level (current +${bonus}%).`;
@@ -2120,7 +2177,8 @@ function getItemTooltipText(data, id, owned, state) {
  */
 function getBuildingTintClass(id) {
   if (id === 'grasshut' || id === 'timberhall' || id === 'longhouse' || id === 'stonekeep') return 'tint-housing';
-  if (id === 'storehouse' || id === 'smokehouse' || id === 'woodcuttershed') return 'tint-storage';
+  if (id === 'storehouse' || id === 'smokehouse' || id === 'woodcuttershed' || id === 'quarrycamp' || id === 'foundry' || id === 'granaryhall' || id === 'timberyard' || id === 'masonryard' || id === 'smeltery') return 'tint-storage';
+  if (id === 'ashaltar') return 'tint-warcamp';
   if (id === 'warcamp') return 'tint-warcamp';
   if (id === 'skaldhall') return 'tint-skald';
   return '';
@@ -2179,12 +2237,12 @@ function hasRequirements(state, requires) {
  */
 function getBaseStorage(state, key) {
   if (key === 'food') {
-    return 200 + (state.buildings.smokehouse || 0) * 200;
+    return 200 + (state.buildings.smokehouse || 0) * 200 + (state.buildings.granaryhall || 0) * 250;
   }
-  if (key === 'wood') return 200;
-  if (key === 'stone') return state.unlocks.stone ? 200 : 0;
-  if (key === 'metal') return state.unlocks.metal ? 200 : 0;
-  if (key === 'ash') return state.unlocks.ash ? 100 : 0;
+  if (key === 'wood') return 200 + (state.buildings.timberyard || 0) * 250;
+  if (key === 'stone') return state.unlocks.stone ? 200 + (state.buildings.quarrycamp || 0) * 150 + (state.buildings.masonryard || 0) * 150 : 0;
+  if (key === 'metal') return state.unlocks.metal ? 200 + (state.buildings.foundry || 0) * 150 + (state.buildings.smeltery || 0) * 150 : 0;
+  if (key === 'ash') return state.unlocks.ash ? 100 + (state.buildings.ashaltar || 0) * 60 : 0;
   if (key === 'knowledge') return state.unlocks.knowledge ? 200 : 0;
   return 0;
 }
@@ -2253,8 +2311,15 @@ function getStageState(stage) {
       storehouse: 3,
       smokehouse: 4,
       woodcuttershed: 4,
+      granaryhall: 2,
+      timberyard: 2,
+      masonryard: 2,
+      smeltery: 2,
       warcamp: 3,
-      skaldhall: 2
+      skaldhall: 2,
+      quarrycamp: 3,
+      foundry: 2,
+      ashaltar: 2
     };
     Object.keys(base.upgrades).forEach((key) => {
       base.upgrades[key] = 1;

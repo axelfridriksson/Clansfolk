@@ -20,6 +20,7 @@ const BALANCE = {
  */
 export function simulateTick(prev, dt = 1) {
   const next = { ...prev };
+  next.world = { ...next.world, expedition: { ...next.world?.expedition } };
   next.time += dt;
 
   const grassHuts = next.buildings.grasshut || 0;
@@ -46,6 +47,26 @@ export function simulateTick(prev, dt = 1) {
   if (!next.unlocks.upgradesTier2 && grassHuts >= 20 && next.world.zone >= 6) next.unlocks.upgradesTier2 = true;
   if (!next.unlocks.travel && next.unlocks.upgradesTier1) next.unlocks.travel = true;
 
+  const logisticsBuildings = (next.buildings.quarrycamp || 0)
+    + (next.buildings.foundry || 0)
+    + (next.buildings.ashaltar || 0)
+    + (next.buildings.skaldhall || 0)
+    + (next.buildings.stonekeep || 0)
+    + (next.buildings.warcamp || 0);
+  const logisticsFoodCost = logisticsBuildings * 0.2 * dt;
+  const logisticsWoodCost = (next.buildings.quarrycamp || 0) * 0.12 * dt
+    + (next.buildings.foundry || 0) * 0.12 * dt
+    + (next.buildings.ashaltar || 0) * 0.08 * dt
+    + (next.buildings.stonekeep || 0) * 0.06 * dt
+    + (next.buildings.skaldhall || 0) * 0.05 * dt;
+  const availableFoodForLogistics = next.resources.food;
+  const availableWoodForLogistics = next.resources.wood;
+  const consumedFoodForLogistics = Math.min(availableFoodForLogistics, logisticsFoodCost);
+  const consumedWoodForLogistics = Math.min(availableWoodForLogistics, logisticsWoodCost);
+  const foodShortage = logisticsFoodCost > 0 ? (logisticsFoodCost - consumedFoodForLogistics) / logisticsFoodCost : 0;
+  const woodShortage = logisticsWoodCost > 0 ? (logisticsWoodCost - consumedWoodForLogistics) / logisticsWoodCost : 0;
+  next.world.logisticsPressure = clamp((foodShortage + woodShortage) / 2, 0, 1);
+
   const nextCaps = calcCaps(next);
   const nextRates = calcRates(next);
   const religion = getReligionBonuses(next);
@@ -61,6 +82,9 @@ export function simulateTick(prev, dt = 1) {
     const gain = (nextRates[key] || 0) * dt;
     next.resources[key] = clamp(next.resources[key] + gain, 0, nextCaps[key]);
   });
+
+  next.resources.food = clamp(next.resources.food - consumedFoodForLogistics, 0, nextCaps.food);
+  next.resources.wood = clamp(next.resources.wood - consumedWoodForLogistics, 0, nextCaps.wood);
 
   const maxPop = 10 + grassHuts * 4 + timberHalls * 6 + longhouses * 8 + (next.buildings.stonekeep || 0) * 10;
   const growthBonus = (1 + (next.upgrades.growthrites || 0) * BALANCE.growthBonusPerLevel) * (1 + religion.growthMult);
@@ -154,7 +178,8 @@ export function simulateTick(prev, dt = 1) {
         next.resources.metal = clamp(next.resources.metal + 2 + next.world.zone * 0.6, 0, nextCaps.metal);
       }
       if (next.unlocks.ash) {
-        const ashGain = Math.max(0, next.world.zone - 2) * (1 + religion.ashGainMult);
+        const ashAltarMult = 1 + (next.buildings.ashaltar || 0) * 0.15;
+        const ashGain = Math.max(0, next.world.zone - 2) * (1 + religion.ashGainMult) * ashAltarMult;
         next.resources.ash = clamp(next.resources.ash + ashGain, 0, nextCaps.ash);
       }
       if (next.unlocks.knowledge) {
@@ -186,6 +211,41 @@ export function simulateTick(prev, dt = 1) {
       next.equipment = Object.fromEntries(Object.keys(next.equipment || {}).map(key => [key, 0]));
       next.world.fighting = false;
       next.log = ['Your warband fell. Regroup and try again.', ...next.log].slice(0, 40);
+    }
+  }
+
+  if (next.world.expedition?.active) {
+    next.world.expedition.timeLeft = Math.max(0, next.world.expedition.timeLeft - dt);
+    if (next.world.expedition.timeLeft <= 0) {
+      const party = next.world.expedition.party || 0;
+      const zone = next.world.zone || 1;
+      const type = next.world.expedition.type;
+      const risk = type === 'salvage' ? 0.16 : type === 'embers' ? 0.24 : 0.2;
+      const casualties = Math.min(party, Math.round(party * (risk * (0.55 + Math.random() * 0.9))));
+      const survivors = Math.max(0, party - casualties);
+      const rewardBase = Math.max(1, Math.round((zone + 2) * (party * 1.4)));
+      if (type === 'salvage') {
+        next.resources.metal = clamp(next.resources.metal + rewardBase * 1.1, 0, nextCaps.metal);
+        next.resources.stone = clamp(next.resources.stone + rewardBase * 0.9, 0, nextCaps.stone);
+      } else if (type === 'embers') {
+        next.resources.ash = clamp(next.resources.ash + rewardBase * 1.0, 0, nextCaps.ash);
+        next.resources.knowledge = clamp(next.resources.knowledge + rewardBase * 0.45, 0, nextCaps.knowledge);
+      } else {
+        next.resources.knowledge = clamp(next.resources.knowledge + rewardBase * 0.9, 0, nextCaps.knowledge);
+        next.resources.food = clamp(next.resources.food + rewardBase * 0.8, 0, nextCaps.food);
+      }
+      next.clansfolk.army = Math.min(next.clansfolk.maxArmy, next.clansfolk.army + survivors);
+      next.log = [
+        `Expedition returned: ${survivors}/${party} survivors, ${casualties} lost.`,
+        ...next.log
+      ].slice(0, 40);
+      next.world.expedition = {
+        active: false,
+        type: null,
+        timeLeft: 0,
+        duration: 0,
+        party: 0
+      };
     }
   }
 
