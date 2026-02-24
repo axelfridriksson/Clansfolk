@@ -2,12 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import stillBg from './assets/images/Still.png';
 import frozenBg from './assets/images/Frozen.png';
 import hellBg from './assets/images/hellvibes.png';
-import { BLACKSMITH_ITEMS, BUILDINGS, JOBS, UPGRADES, PATRONS, RITES_BUILDINGS } from './data.js';
+import { BLACKSMITH_ITEMS, BUILDINGS, UPGRADES, PATRONS, RITES_BUILDINGS } from './data.js';
 import { SAVE_KEY, START_STATE } from './models.js';
 import { calcCaps, calcRates, getArmyStats, canAfford, applyCost, loadSave, mergeSave, totalJobs } from './systems.js';
 import { simulateTick } from './sim.js';
-import ArrowDuelCanvas from './components/ArrowDuelCanvas.jsx';
-import ChantMinigame from './components/ChantMinigame.jsx';
+import AppHeader from './components/AppHeader.jsx';
+import LeftColumn from './components/LeftColumn.jsx';
+import OverviewTab from './components/OverviewTab.jsx';
+import WarcampTab from './components/WarcampTab.jsx';
+import RitesTab from './components/RitesTab.jsx';
+import TravelTab from './components/TravelTab.jsx';
 import chant1 from './assets/audio/sfx/chant1.wav';
 import chant2 from './assets/audio/sfx/chant2.wav';
 import chant3 from './assets/audio/sfx/chant3.wav';
@@ -33,14 +37,28 @@ export default function App() {
   });
   const [tooltip, setTooltip] = useState(null);
   const [assignStep, setAssignStep] = useState(1);
-  const ritualLaneRef = useRef(null);
-  const ritualTargetRef = useRef(null);
   const chantHitRef = useRef([]);
   const chantMissRef = useRef([]);
 
   const caps = useMemo(() => calcCaps(state), [state.buildings, state.unlocks, state.religion]);
-  const rates = useMemo(() => calcRates(state), [state.jobs, state.buildings, state.perks, state.religion, state.unlocks]);
+  const rates = useMemo(
+    () => calcRates(state),
+    [
+      state.jobs,
+      state.buildings,
+      state.perks,
+      state.religion,
+      state.unlocks,
+      state.world?.logisticsPressure,
+      state.world?.overcrowdingOutputPenalty
+    ]
+  );
+  const netRates = useMemo(
+    () => getResourceNetRates(state, rates),
+    [rates, state.buildings, state.clansfolk.total, state.unlocks, state.world?.overcrowdingFoodMult]
+  );
   const army = useMemo(() => getArmyStats(state), [state.clansfolk, state.jobs, state.perks, state.equipment, state.ui?.combatStance, state.religion]);
+  const travelPartyCap = useMemo(() => getTravelPartyCap(state), [state.upgrades]);
   const activeTab = state.ui?.tab || 'overview';
   const tabs = [
     { id: 'overview', label: 'Overview' },
@@ -51,7 +69,6 @@ export default function App() {
   const blacksmithItems = Object.entries(BLACKSMITH_ITEMS)
     .map(([id, item]) => ({ id, ...item }))
     .filter(item => (!item.unlock || state.unlocks[item.unlock]) && state.unlocks.blacksmith);
-  const equipItems = blacksmithItems;
   const equipSlots = [
     { id: 'weapon', label: 'Weapon' },
     { id: 'shield', label: 'Shield' },
@@ -88,62 +105,13 @@ export default function App() {
   const patron = PATRONS.find(entry => entry.id === state.religion?.patron);
 
   useEffect(() => {
-    let running = true;
     const step = 0.25;
-    const maxCatchUp = 10;
-    const lastRef = { t: performance.now() };
-    const accRef = { t: 0 };
-
-    const loop = (now) => {
-      if (!running) return;
-      const dt = Math.min(1, (now - lastRef.t) / 1000);
-      lastRef.t = now;
-      accRef.t += dt;
-      if (accRef.t >= step) {
-        setState(prev => {
-          let next = prev;
-          let steps = 0;
-          while (accRef.t >= step && steps < maxCatchUp) {
-            next = simulateTick(next, step);
-            accRef.t -= step;
-            steps += 1;
-          }
-          return next;
-        });
-      }
-      requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
-
-    return () => {
-      running = false;
-    };
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      setState(prev => simulateTick(prev, step));
+    }, step * 1000);
+    return () => clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    if (!state.religion?.ritual?.active) return undefined;
-    let running = true;
-    const loop = () => {
-      if (!running) return;
-      const ritual = state.religion?.ritual;
-      if (ritual?.type === 'archery') {
-        const laneEl = ritualLaneRef.current;
-        const targetEl = ritualTargetRef.current;
-        if (ritual && laneEl && targetEl) {
-          const rect = laneEl.getBoundingClientRect();
-          const meter = getRitualMeter(performance.now() / 1000, ritual);
-          const maxX = Math.max(0, rect.width - 16);
-          targetEl.style.transform = `translateX(${meter * maxX}px)`;
-        }
-      }
-      requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
-    return () => {
-      running = false;
-    };
-  }, [state.religion?.ritual?.active, state.religion?.ritual?.startTime, state.religion?.ritual?.period, state.religion?.ritual?.bandCenter, state.religion?.ritual?.bandWidth]);
-
 
   useEffect(() => {
     const saveInterval = setInterval(() => {
@@ -179,6 +147,20 @@ export default function App() {
   const milestones = getMilestones(state);
   const scene = getCombatScene(state, zoneProgress);
   const enemyAtk = state.world.enemyAtk;
+  const crowdRatio = state.world.overcrowdingRatio || (maxTrimps > 0 ? state.clansfolk.total / maxTrimps : 0);
+  const crowdFillPercent = Math.max(0, Math.round(crowdRatio * 100));
+  const crowdStart = maxTrimps >= 150 ? 0.9 : 0.95;
+  const overcrowdingTone = crowdRatio < crowdStart ? 'safe' : crowdRatio < 1.05 ? 'warn' : 'danger';
+  const overcrowdingDangerLevel = overcrowdingTone === 'danger'
+    ? Math.max(0, Math.min(1, (crowdRatio - 1.05) / 0.25))
+    : 0;
+  const logisticsPressure = state.world.logisticsPressure || 0;
+  const logisticsOutputPenalty = Math.max(0, (1 - Math.max(0.4, 1 - logisticsPressure * 0.6)) * 100);
+  const overcrowdingGrowthPenalty = Math.max(0, (state.world.overcrowdingGrowthPenalty || 0) * 100);
+  const overcrowdingOutputPenalty = Math.max(0, (state.world.overcrowdingOutputPenalty || 0) * 100);
+  const overcrowdingFoodMult = state.world.overcrowdingFoodMult || 1;
+  const logisticsTooltipText = `Logistics shortfall is reducing worker output by ${logisticsOutputPenalty.toFixed(1)}%. Keep food, wood, stone, and metal supply stable to lower pressure.`;
+  const overcrowdingTooltipText = `Overcrowding effects: growth -${overcrowdingGrowthPenalty.toFixed(1)}%, output -${overcrowdingOutputPenalty.toFixed(1)}%, food use x${overcrowdingFoodMult.toFixed(2)}.`;
   const resourceOrder = ['food', 'wood', 'stone', 'metal', 'knowledge', 'ash'];
   const runeDefs = [
     { id: 'ember', name: 'Ember Rune', desc: '+2% production per rune', cost: { remnants: 2 } },
@@ -230,64 +212,85 @@ export default function App() {
    * Build a building or buy an upgrade.
    * @param {string} type
    */
-  function build(type) {
+  function build(type, amount = 1) {
     const config = BUILDINGS[type] || UPGRADES[type];
     setState(prev => {
       const isUpgrade = Boolean(UPGRADES[type]);
       if (!hasRequirements(prev, config.requires)) return prev;
       if (config.requiresZone && prev.world.zone < config.requiresZone) return prev;
-      const owned = isUpgrade ? (prev.upgrades[type] || 0) : (prev.buildings[type] || 0);
-      const scaledCost = getScaledCost(config.cost, owned, getScale(isUpgrade, config.group));
-      if (!canAfford(prev, scaledCost)) return prev;
-      if (isUpgrade && config.group === 'Innovation' && owned > 0) return prev;
       const next = {
         ...prev,
         buildings: { ...prev.buildings },
         upgrades: { ...prev.upgrades },
-        resources: applyCost(prev, scaledCost)
+        resources: { ...prev.resources }
       };
-      if (isUpgrade) {
-        if (type === 'stoneworking') {
-          next.unlocks = { ...next.unlocks, stone: true };
-          next.upgrades[type] = 1;
-          pushLog('Stone can now be gathered.');
-        } else if (type === 'mining') {
-          next.unlocks = { ...next.unlocks, metal: true };
-          next.upgrades[type] = 1;
-          pushLog('Metal can now be gathered.');
-        } else if (type === 'ashgathering') {
-          next.unlocks = { ...next.unlocks, ash: true };
-          next.upgrades[type] = 1;
-          pushLog('Ash can now be gathered.');
-        } else if (type === 'lorekeeping') {
-          next.unlocks = { ...next.unlocks, knowledge: true };
-          next.upgrades[type] = 1;
-          pushLog('Knowledge can now be stored.');
-        } else if (type === 'skaldtraining') {
-          next.unlocks = { ...next.unlocks, lorekeepers: true };
-          next.upgrades[type] = 1;
-          pushLog('Lorekeepers can now be assigned.');
-        } else if (type === 'blacksmithing') {
-          next.unlocks = { ...next.unlocks, blacksmith: true };
-          next.upgrades[type] = 1;
-          pushLog('The blacksmith is now operational.');
-        } else if (type === 'armory1') {
-          next.unlocks = { ...next.unlocks, weaponTier2: true };
-          next.upgrades[type] = 1;
-          pushLog('Reinforced blacksmith gear unlocked.');
-        } else if (type === 'armory2') {
-          next.unlocks = { ...next.unlocks, weaponTier3: true };
-          next.upgrades[type] = 1;
-          pushLog('Iron blacksmith gear unlocked.');
+      const maxPurchases = amount === 'max' ? Number.MAX_SAFE_INTEGER : Math.max(1, Number(amount) || 1);
+      const oneTimeInnovation = isUpgrade && config.group === 'Innovation';
+      let purchases = 0;
+
+      while (purchases < maxPurchases) {
+        const owned = isUpgrade ? (next.upgrades[type] || 0) : (next.buildings[type] || 0);
+        if (!isUpgrade && type === 'warcamp' && owned >= getWarcampCap(next)) break;
+        if (oneTimeInnovation && owned > 0) break;
+
+        const scaledCost = getScaledCost(config.cost, owned, getScale(isUpgrade, config.group), type);
+        const timberYardDiscount = Math.min(0.35, (next.buildings.timberyard || 0) * 0.04);
+        const finalCost = applyWoodDiscount(scaledCost, timberYardDiscount);
+        if (!canAfford(next, finalCost)) break;
+        next.resources = applyCost(next, finalCost);
+
+        if (isUpgrade) {
+          if (type === 'stoneworking') {
+            next.unlocks = { ...next.unlocks, stone: true };
+            next.upgrades[type] = 1;
+          } else if (type === 'mining') {
+            next.unlocks = { ...next.unlocks, metal: true };
+            next.upgrades[type] = 1;
+          } else if (type === 'ashgathering') {
+            next.unlocks = { ...next.unlocks, ash: true };
+            next.upgrades[type] = 1;
+          } else if (type === 'lorekeeping') {
+            next.unlocks = { ...next.unlocks, knowledge: true };
+            next.upgrades[type] = 1;
+          } else if (type === 'skaldtraining') {
+            next.unlocks = { ...next.unlocks, lorekeepers: true };
+            next.upgrades[type] = 1;
+          } else if (type === 'blacksmithing') {
+            next.unlocks = { ...next.unlocks, blacksmith: true };
+            next.upgrades[type] = 1;
+          } else if (type === 'armory1') {
+            next.unlocks = { ...next.unlocks, weaponTier2: true };
+            next.upgrades[type] = 1;
+          } else if (type === 'armory2') {
+            next.unlocks = { ...next.unlocks, weaponTier3: true };
+            next.upgrades[type] = 1;
+          } else {
+            const nextLevel = config.group === 'Innovation' ? 1 : (next.upgrades[type] || 0) + 1;
+            next.upgrades[type] = nextLevel;
+          }
         } else {
-          const nextLevel = config.group === 'Innovation' ? 1 : (next.upgrades[type] || 0) + 1;
-          next.upgrades[type] = nextLevel;
-          pushLog(`${config.name} ${config.group === 'Innovation' ? 'acquired' : 'upgraded'}.`);
+          next.buildings[type] += 1;
         }
-      } else {
-        next.buildings[type] += 1;
-        pushLog(`${config.name} constructed.`);
+
+        purchases += 1;
+        if (oneTimeInnovation) break;
       }
+
+      if (purchases <= 0) return prev;
+      if (isUpgrade) {
+        if (type === 'stoneworking') pushLog('Stone can now be gathered.');
+        else if (type === 'mining') pushLog('Metal can now be gathered.');
+        else if (type === 'ashgathering') pushLog('Ash can now be gathered.');
+        else if (type === 'lorekeeping') pushLog('Knowledge can now be stored.');
+        else if (type === 'skaldtraining') pushLog('Lorekeepers can now be assigned.');
+        else if (type === 'blacksmithing') pushLog('The blacksmith is now operational.');
+        else if (type === 'armory1') pushLog('Reinforced blacksmith gear unlocked.');
+        else if (type === 'armory2') pushLog('Iron blacksmith gear unlocked.');
+        else pushLog(`${config.name} ${config.group === 'Innovation' ? 'acquired' : `upgraded x${purchases}`}.`);
+      } else {
+        pushLog(`${config.name} constructed x${purchases}.`);
+      }
+
       if (next.clansfolk.army > 0) {
         const stats = getArmyStats(next);
         const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
@@ -326,6 +329,75 @@ export default function App() {
         ...prev,
         resources: applyCost(prev, config.cost),
         religion: { ...prev.religion, patron: selected, buildings: { ...prev.religion.buildings } }
+      };
+    });
+  }
+
+  /**
+   * Set expedition send amount from quick controls.
+   * @param {number|string} amount
+   */
+  function setExpeditionSend(amount) {
+    setState(prev => {
+      const army = Math.max(0, prev.clansfolk.army || 0);
+      const cap = getTravelPartyCap(prev);
+      const maxSend = Math.max(1, Math.min(army, cap));
+      const target = amount === 'max'
+        ? maxSend
+        : Math.max(1, Math.min(maxSend, Number(amount) || 1));
+      return {
+        ...prev,
+        ui: { ...prev.ui, expeditionSend: target }
+      };
+    });
+  }
+
+  /**
+   * Launch an expedition from the travel tab.
+   * @param {'scout'|'salvage'|'embers'} type
+   */
+  function startExpedition(type) {
+    setState(prev => {
+      if (prev.world?.fighting) return prev;
+      if (prev.world?.expedition?.active) return prev;
+      const army = Math.max(0, prev.clansfolk.army || 0);
+      if (army <= 0) return prev;
+      if (type === 'embers' && !prev.unlocks.ash) return prev;
+      const cap = getTravelPartyCap(prev);
+      const send = Math.max(1, Math.min(army, cap, prev.ui?.expeditionSend || 1));
+      const travelSpeed = getTravelSpeedMult(prev);
+      const baseDuration = type === 'salvage' ? 55 : type === 'embers' ? 70 : 45;
+      const zoneTax = Math.max(0, prev.world.zone - 1) * 1.5;
+      const duration = Math.max(15, Math.round((baseDuration + zoneTax) * travelSpeed));
+      return {
+        ...prev,
+        world: {
+          ...prev.world,
+          expedition: {
+            active: true,
+            type,
+            timeLeft: duration,
+            duration,
+            party: send
+          }
+        },
+        clansfolk: {
+          ...prev.clansfolk,
+          army: Math.max(0, prev.clansfolk.army - send),
+          armyHP: 0,
+          armyHPMax: 0
+        },
+        ui: {
+          ...prev.ui,
+          expeditionSend: Math.max(
+            1,
+            Math.min(
+              Math.max(0, prev.clansfolk.army - send),
+              cap,
+              prev.ui?.expeditionSend || 1
+            )
+          )
+        }
       };
     });
   }
@@ -933,1021 +1005,227 @@ export default function App() {
     pick.play().catch(() => {});
   }
 
+  function handleArcheryHit(spearsLeft) {
+    setState(prev => {
+      const ritual = prev.religion?.ritual;
+      if (!ritual?.active || ritual.type !== 'archery') return prev;
+      const nextHits = Math.min(ritual.required, ritual.hits + 1);
+      return {
+        ...prev,
+        religion: {
+          ...prev.religion,
+          ritual: {
+            ...ritual,
+            hits: nextHits,
+            arrowsLeft: spearsLeft
+          }
+        }
+      };
+    });
+  }
+
+  function handleArcheryMiss(spearsLeft) {
+    setState(prev => {
+      const ritual = prev.religion?.ritual;
+      if (!ritual?.active || ritual.type !== 'archery') return prev;
+      return {
+        ...prev,
+        religion: {
+          ...prev.religion,
+          ritual: {
+            ...ritual,
+            arrowsLeft: spearsLeft
+          }
+        }
+      };
+    });
+  }
+
+  function handleArcheryFinalHit(holdSeconds) {
+    setState(prev => {
+      const ritual = prev.religion?.ritual;
+      if (!ritual?.active) return prev;
+      const holdUntil = performance.now() / 1000 + holdSeconds;
+      return {
+        ...prev,
+        religion: {
+          ...prev.religion,
+          ritual: {
+            ...ritual,
+            holdUntil,
+            timeLeft: Math.max(ritual.timeLeft, holdSeconds)
+          }
+        }
+      };
+    });
+  }
+
   return (
     <>
-      <header>
-        <div className="header-left">
-          <div>
-            <h1>Clansfolk Prototype</h1>
-            <div className="meta">Zone {state.world.zone} · Remnants {state.perks.remnants} · {Math.floor(state.time)}s</div>
-          </div>
-          <div className="header-resources">
-            {Object.entries(state.resources)
-              .filter(([key]) => isResourceUnlocked(state, key))
-              .map(([key, value]) => (
-                <span key={key} className="resource-chip">
-                  {key.toUpperCase()} {formatShort(value)}
-                </span>
-              ))}
-          </div>
-          <div className="header-tabs">
-            {tabs.filter(tab => !tab.requires || tab.requires()).map(tab => (
-              <button
-                key={tab.id}
-                className={`header-tab ${activeTab === tab.id ? 'active' : ''}`}
-                onClick={() => setState(prev => ({
-                  ...prev,
-                  ui: { ...prev.ui, tab: tab.id }
-                }))}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <span className="chip">Prod x{state.perks.prodMult.toFixed(2)}</span>
-          <button className="warn" onClick={prestige} disabled={state.world.zone < 10}>Ascend</button>
-          <details className="settings-menu">
-            <summary>Settings</summary>
-            <div className="settings-panel">
-              <button className="danger" onClick={hardRestart}>Hard Restart</button>
-              <button className="ghost" onClick={() => setStage(1)}>Load Stage 1</button>
-              <button className="ghost" onClick={() => setStage(2)}>Load Stage 2</button>
-              <button className="ghost" onClick={() => setStage(3)}>Load Stage 3</button>
-              <button
-                className="ghost"
-                onClick={() => setState(prev => ({
-                  ...prev,
-                  resources: { ...prev.resources, ash: (prev.resources.ash || 0) + 200 }
-                }))}
-              >
-                Dev: +200 Ash
-              </button>
-              <button className="ghost" onClick={toggleTutorial}>
-                {state.tutorial.enabled ? 'Disable Tutorial' : 'Enable Tutorial'}
-              </button>
-              <button className="ghost" onClick={toggleDevMode}>
-                {state.dev.showAll ? 'Disable Dev Mode' : 'Enable Dev Mode'}
-              </button>
-            </div>
-          </details>
-        </div>
-      </header>
-      <div className="shell">
-        <div className="left-column">
-          <section className="panel section">
-            <h2>Resources</h2>
-            <div className="resource-list">
-              {resourceOrder
-                .filter((key) => isResourceUnlocked(state, key))
-                .map((key) => {
-                const value = state.resources[key] || 0;
-                const baseStorage = getBaseStorage(state, key);
-                const storehouseLevel = state.buildings.storehouse || 0;
-                const storehousePercent = storehouseLevel * 50;
-                const rate = rates[key] || 0;
-                const isCapped = value >= caps[key];
-                const waste = Math.max(0, rate);
-                const isLeaderTask = state.ui.leaderTask === key;
-                const leaderLabel = isLeaderTask ? ' (Leader +2/s)' : '';
-                return (
-                  <div key={key} className={`resource-card ${isCapped ? 'capped' : ''}`}>
-                    <div className="resource-row">
-                      <strong>{key.toUpperCase()}</strong>
-                      <strong className="resource-cap">{formatShort(value)} / {formatShort(caps[key])} storage</strong>
-                    </div>
-                    <div className="resource-row meta">
-                      <span className={isCapped ? 'waste' : ''}>
-                        {isCapped ? `Waste ${waste.toFixed(2)} /s` : `+${rate.toFixed(2)} /s${leaderLabel}`}
-                      </span>
-                      <span className="storage-meta"></span>
-                      {key !== 'ash' && (
-                        <button
-                          className={`mini ${isLeaderTask ? 'selected' : ''}`}
-                          onClick={() => setState(prev => ({
-                            ...prev,
-                            ui: { ...prev.ui, leaderTask: isLeaderTask ? null : key }
-                          }))}
-                        >
-                          {isLeaderTask ? 'Leading' : 'Lead'}
-                        </button>
-                      )}
-                    </div>
-                    <div className="resource-bar">
-                      <div style={{ width: `${Math.min(100, (value / Math.max(1, caps[key])) * 100)}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="panel section">
-            <h2>Clansfolk & Jobs</h2>
-            <div className="population-summary">
-              <div className="pop-row">
-                <span>Total</span>
-                <strong>{Math.floor(state.clansfolk.total)} / {maxTrimps}</strong>
-              </div>
-              <div className="pop-row">
-                <span>Idle</span>
-                <strong className={state.clansfolk.idle < 1 ? 'scarce' : ''}>{Math.floor(state.clansfolk.idle)}</strong>
-              </div>
-              <div className="pop-row">
-                <span>Assigned</span>
-                <strong>{Math.floor(totalAssigned)}</strong>
-              </div>
-            </div>
-            <div className="assign-step">
-              <span>Assign</span>
-              <div className="assign-buttons">
-                <button className={`mini ${assignStep === 1 ? 'selected' : ''}`} onClick={() => setAssignStep(1)}>x1</button>
-                <button className={`mini ${assignStep === 5 ? 'selected' : ''}`} onClick={() => setAssignStep(5)}>x5</button>
-                <button className={`mini ${assignStep === 10 ? 'selected' : ''}`} onClick={() => setAssignStep(10)}>x10</button>
-                <button className={`mini ${assignStep === 'max' ? 'selected' : ''}`} onClick={() => setAssignStep('max')}>Max</button>
-              </div>
-            </div>
-            <div className="growth-row">
-              <span>Next Clansfolk</span>
-              <span>{Math.round(state.clansfolk.growthProgress * 100)}%</span>
-            </div>
-            <div className="growth-bar">
-              <div style={{ width: `${Math.min(100, state.clansfolk.growthProgress * 100)}%` }} />
-            </div>
-            <div className="jobs-list">
-              {Object.entries(JOBS).map(([key, job]) => {
-                const assigned = state.jobs[key];
-                if (!isJobUnlocked(state, key)) return null;
-                const drillCap = key === 'drillmaster' ? Math.max(0, state.clansfolk.maxArmy || 0) : null;
-                return (
-                  <div className="job-row" key={key}>
-                    <div className="job-header">
-                      <span>
-                        {job.name} {assigned}
-                        {key === 'drillmaster' && (
-                          <span className="job-cap"> / {drillCap} warcamp limit</span>
-                        )}
-                      </span>
-                      <div className="job-controls">
-                        <button className="ghost mini" onClick={() => assign(key, assignStep === 'max' ? -assigned : -assignStep)} disabled={assigned < 1}>−</button>
-                        <button
-                          className="mini"
-                          onClick={() => assign(key, assignStep === 'max' ? state.clansfolk.idle : assignStep)}
-                          disabled={state.clansfolk.idle < 1}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="grid grid-2">
-              <button className="secondary" onClick={sendArmy}>Send to Warband</button>
-              <button className="ghost" onClick={recallArmy}>Recall</button>
-            </div>
-          </section>
-
-          <section className="panel section">
-            <h2>Buildings & Innovation</h2>
-            <div className="buildings-list">
-              {Object.entries(buildingGroups).map(([group, items]) => (
-                <details className="build-group" key={group} open>
-                  <summary>{group}</summary>
-                  <div className="build-group-items">
-                    {items.map(({ id, data }) => {
-                      const isUpgrade = Boolean(UPGRADES[id]);
-                      const owned = isUpgrade ? (state.upgrades[id] || 0) : (state.buildings[id] || 0);
-                      const scaledCost = getScaledCost(data.cost, owned, getScale(isUpgrade, data.group, data));
-                      const tintClass = !isUpgrade ? getBuildingTintClass(id) : '';
-                      const costEntries = Object.entries(scaledCost);
-                      const inlineCost = costEntries.map(([r, v]) => `${v} ${r}`).join(', ');
-                      const stackCost = Boolean(data.icon) && (costEntries.length > 2 || inlineCost.length > 24);
-                      const costLines = stackCost
-                        ? id === 'skaldhall'
-                          ? [
-                            costEntries
-                              .filter(([r]) => r === 'wood' || r === 'stone')
-                              .map(([r, v]) => `${v} ${r}`)
-                              .join(', '),
-                            ...costEntries
-                              .filter(([r]) => r !== 'wood' && r !== 'stone')
-                              .map(([r, v]) => `${v} ${r}`)
-                          ].filter(Boolean)
-                          : costEntries.map(([r, v]) => `${v} ${r}`)
-                        : [inlineCost];
-                      return (
-                      <div
-                        className={`build-row ${tintClass} ${data.icon ? 'has-icon' : ''} ${stackCost ? 'icon-dense' : ''}`}
-                        key={id}
-                        style={data.icon ? { '--card-icon': `url(${data.icon})` } : undefined}
-                      >
-                        <div className="build-info">
-                          <div className="item-title">
-                            <strong>{data.name}</strong>
-                          </div>
-                          <div className={`cost cost-list ${stackCost ? 'stack' : ''}`}>
-                            {costLines.map((line, idx) => (
-                              <span key={`${id}-cost-${idx}`}>{line}</span>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="build-actions">
-                          <span className="owned">{isUpgrade ? 'Level' : 'Owned'} {owned}</span>
-                          <span
-                            className="tooltip-target"
-                            onMouseEnter={(event) => showTooltip(
-                              getItemTooltipText(data, id, owned, state),
-                              event.currentTarget.getBoundingClientRect()
-                            )}
-                            onMouseLeave={hideTooltip}
-                          >
-                            <button
-                              className="ghost mini"
-                              onClick={() => build(id)}
-                              disabled={!canAfford(state, scaledCost)}
-                            >
-                              {isUpgrade ? 'Upgrade' : 'Build'}
-                            </button>
-                          </span>
-                        </div>
-                      </div>
-                    );
-                    })}
-                  </div>
-                </details>
-              ))}
-            </div>
-          </section>
-
-          <section className="panel section locked">
-            <h2>Automation</h2>
-            <div className="locked-row">
-              <span className="lock">Locked</span>
-              <span>Automation unlocks after the first cycle.</span>
-            </div>
-          </section>
-        </div>
+      <AppHeader
+        state={state}
+        tabs={tabs}
+        activeTab={activeTab}
+        formatShort={formatShort}
+        isResourceUnlocked={isResourceUnlocked}
+        onTabChange={(tabId) => setState(prev => ({
+          ...prev,
+          ui: { ...prev.ui, tab: tabId }
+        }))}
+        prestige={prestige}
+        hardRestart={hardRestart}
+        setStage={setStage}
+        toggleTutorial={toggleTutorial}
+        toggleDevMode={toggleDevMode}
+        onDevAddAsh={() => setState(prev => ({
+          ...prev,
+          resources: { ...prev.resources, ash: (prev.resources.ash || 0) + 200 }
+        }))}
+        onToggleLowFx={() => setState(prev => ({
+          ...prev,
+          ui: { ...prev.ui, lowFx: !prev.ui?.lowFx }
+        }))}
+      />
+      <div className={`shell ${state.ui?.lowFx ? 'low-fx' : ''} ${activeTab === 'travel' ? 'travel-layout' : ''}`}>
+        {activeTab !== 'travel' && (
+        <LeftColumn
+          state={state}
+          caps={caps}
+          rates={rates}
+          netRates={netRates}
+          resourceOrder={resourceOrder}
+          formatShort={formatShort}
+          isResourceUnlocked={isResourceUnlocked}
+          maxTrimps={maxTrimps}
+          totalAssigned={totalAssigned}
+          assignStep={assignStep}
+          setAssignStep={setAssignStep}
+          assign={assign}
+          sendArmy={sendArmy}
+          recallArmy={recallArmy}
+          isJobUnlocked={isJobUnlocked}
+          buildingGroups={buildingGroups}
+          getScaledCost={getScaledCost}
+          getScale={getScale}
+          applyWoodDiscount={applyWoodDiscount}
+          getBuildingTintClass={getBuildingTintClass}
+          showTooltip={showTooltip}
+          hideTooltip={hideTooltip}
+          getItemTooltipText={getItemTooltipText}
+          build={build}
+          onToggleLeaderTask={(key, isLeaderTask) => setState(prev => ({
+            ...prev,
+            ui: { ...prev.ui, leaderTask: isLeaderTask ? null : key }
+          }))}
+          onSetBuildCategory={(category) => setState(prev => ({
+            ...prev,
+            ui: { ...prev.ui, buildCategory: category }
+          }))}
+        />
+        )}
 
         {activeTab === 'overview' ? (
-        <>
-          <div className="center-column">
-          <section className="panel center-section world-header">
-            <div className="zone-title">
-              <div className="zone-name">{zoneName}</div>
-              <div className="zone-number">Zone {state.world.zone}</div>
-            </div>
-            <div className="pressure-tags">
-              <span className="pressure">Frost</span>
-              <span className="pressure">Ash</span>
-              <span className="pressure">Wind</span>
-            </div>
-          </section>
-
-          <section className="panel center-section primary-progress">
-            <div className="progress-title">Advance</div>
-            <div className="progress-bar">
-              <div style={{ width: `${Math.max(0, Math.min(100, zoneProgress * 100))}%` }} />
-            </div>
-            <div className="blocker">{blocker}</div>
-            <div className="logistics-center-row">
-              <span>Logistics Pressure</span>
-              <strong>{Math.round((state.world.logisticsPressure || 0) * 100)}%</strong>
-            </div>
-          </section>
-
-          <section className="panel center-section combat-summary">
-            {state.buildings.warcamp > 0 && (
-              <div className="warband-control">
-                <div className="warband-label">Send to Warband</div>
-                <div className="warband-meta">
-                  {(() => {
-                    const reserve = 2;
-                    const available = Math.max(0, state.clansfolk.total - reserve);
-                    const space = state.clansfolk.maxArmy - state.clansfolk.army;
-                    const maxSend = Math.max(0, Math.min(state.clansfolk.idle, available, space));
-                    const value = Math.max(1, Math.min(state.ui.warbandSend || 1, maxSend || 1));
-                    return (
-                      <>
-                        <div className="warband-count">Sending {maxSend === 0 ? 0 : value} clansfolk</div>
-                        <input
-                          type="range"
-                          min={1}
-                          max={Math.max(1, maxSend)}
-                          step={1}
-                          value={maxSend === 0 ? 1 : value}
-                          onChange={(event) => {
-                            const nextValue = Math.max(1, Number(event.target.value || 1));
-                            setState(prev => ({
-                              ...prev,
-                              ui: { ...prev.ui, warbandSend: nextValue }
-                            }));
-                          }}
-                          disabled={maxSend <= 0}
-                        />
-                        <div className="warband-available">Available {maxSend} · Cap {state.clansfolk.maxArmy}</div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-            )}
-            <div className={`combat-scene ${state.world.fighting ? 'active' : ''}`} style={{ backgroundImage: `url(${scene})` }}>
-              <div className={`combat-scene-overlay ${state.world.fighting ? 'active' : ''}`} />
-              <div className="combat-scene-actors">
-                <span className="fighter ally" />
-                <span className="fighter ally delay" />
-                <span className="fighter ally delay-2" />
-                <span className="fighter enemy" />
-              </div>
-            </div>
-            <div className="combat-row">
-              <div className="combat-label">Enemy</div>
-              <div className="combat-value">
-                {Math.round(state.world.enemyHP)} / {state.world.enemyHPMax} · ATK {state.world.enemyAtk.toFixed(1)}
-                <span className="enemy-count">Enemy {state.world.enemyIndex || 1} of {state.world.enemiesPerZone || 5}</span>
-              </div>
-            </div>
-            <div className="combat-row sub">
-              <div className="combat-label">Incoming</div>
-              <div className="combat-value">
-                {(() => {
-                  const base = state.world.enemyAtk * 0.5 * 0.25;
-                  const min = base * 0.85;
-                  const max = base * 1.84;
-                  return `${(min * 4).toFixed(1)} - ${(max * 4).toFixed(1)} dmg / s`;
-                })()}
-              </div>
-            </div>
-            <div className="combat-row sub">
-              <div className="combat-label">Last Hit</div>
-              <div className="combat-value">
-                {state.world.lastEnemyHit ? `${(state.world.lastEnemyHit * 4).toFixed(1)} dmg / s` : '--'}
-              </div>
-            </div>
-            <div className="bar enemy">
-              <div style={{ width: `${(state.world.enemyHP / state.world.enemyHPMax) * 100}%` }} />
-            </div>
-
-            <div className="combat-row">
-              <div className="combat-label">Warband</div>
-              <div className="combat-value">{state.clansfolk.armyHP.toFixed(1)} / {state.clansfolk.armyHPMax.toFixed(1)} HP · {army.atk.toFixed(1)} ATK</div>
-            </div>
-            <div className="combat-row sub">
-              <div className="combat-label">Outgoing</div>
-              <div className="combat-value">
-                {(() => {
-                  const stance = state.ui?.combatStance || 'balanced';
-                  const stanceRange = stance === 'aggressive'
-                    ? { min: 0.2, max: 0.8 }
-                    : stance === 'defensive'
-                      ? { min: 0.4, max: 0.5 }
-                      : { min: 0.3, max: 0.6 };
-                  const base = army.atk * 0.6 * 0.25;
-                  const min = base * stanceRange.min;
-                  const max = base * stanceRange.max;
-                  return `${(min * 4).toFixed(1)} - ${(max * 4).toFixed(1)} dmg / s`;
-                })()}
-              </div>
-            </div>
-            <div className="combat-row sub">
-              <div className="combat-label">Last Hit</div>
-              <div className="combat-value">
-                {state.world.lastWarbandHit ? `${(state.world.lastWarbandHit * 4).toFixed(1)} dmg / s` : '--'}
-              </div>
-            </div>
-            <div className="bar">
-              <div style={{ width: `${Math.min(100, (state.clansfolk.armyHP / Math.max(1, state.clansfolk.armyHPMax)) * 100)}%` }} />
-            </div>
-
-            <div className={`forecast ${forecast.tone}`}>{forecast.text}</div>
-            <div className="combat-times">
-              <span>TTK {combatTimes.ttk}s</span>
-              <span>TTL {combatTimes.ttl}s</span>
-            </div>
-            <div className={`combat-outcome ${combatTimes.outcomeTone}`}>{combatTimes.outcomeText}</div>
-            <div className="combat-actions">
-              <button onClick={startFight} disabled={state.world.fighting || state.clansfolk.army <= 0}>Fight</button>
-              <button className="secondary" onClick={() => pushLog('Scouted the zone.')}>Scout</button>
-              <button className="ghost" onClick={stopFight} disabled={!state.world.fighting}>Retreat</button>
-            </div>
-            <div className="combat-stance">
-              {['aggressive', 'balanced', 'defensive'].map(stance => (
-                <button
-                  key={stance}
-                  className={`mini ${state.ui.combatStance === stance ? 'selected' : ''}`}
-                  onClick={() => setState(prev => {
-                    const next = {
-                      ...prev,
-                      ui: { ...prev.ui, combatStance: stance },
-                      clansfolk: { ...prev.clansfolk }
-                    };
-                    if (next.clansfolk.army > 0) {
-                      const stats = getArmyStats(next);
-                      const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
-                      next.clansfolk.armyHPMax = stats.hp;
-                      next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
-                    }
-                    return next;
-                  })}
-                >
-                  {stance}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="panel center-section prestige-awareness">
-            <div className="cycle-row">
-              <div>
-                <div className="cycle-title">{cycleName}</div>
-                <div className="cycle-time">Cycle Time {cycleTime}</div>
-              </div>
-              <div className="prestige-actions">
-                <button className="warn" onClick={prestige} disabled={state.world.zone < 10}>Ascend</button>
-              </div>
-            </div>
-          </section>
-        </div>
-
-          <div className="right-column">
-          <section className="panel section">
-            <h2>World Modifiers</h2>
-            <div className="mod-group">
-              <div className="mod-title">Production</div>
-              {modifiers.production.map(item => (
-                <div className="mod-row" key={item.label}>
-                  <span>{item.label}</span>
-                  <span className="mod-value">{item.value}</span>
-                </div>
-              ))}
-            </div>
-            <div className="mod-group">
-              <div className="mod-title">Combat</div>
-              {modifiers.combat.map(item => (
-                <div className="mod-row" key={item.label}>
-                  <span>{item.label}</span>
-                  <span className="mod-value">{item.value}</span>
-                </div>
-              ))}
-            </div>
-            <div className="mod-group">
-              <div className="mod-title">Environment</div>
-              {modifiers.environment.map(item => (
-                <div className="mod-row" key={item.label}>
-                  <span>{item.label}</span>
-                  <span className="mod-value">{item.value}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="panel section">
-            <h2>Forecasts & Warnings</h2>
-            <div className="forecast-list">
-              {forecasts.length === 0 && (
-                <div className="forecast-item neutral">No immediate pressure detected.</div>
-              )}
-              {forecasts.map(item => (
-                <div className={`forecast-item ${item.tone}`} key={item.text}>{item.text}</div>
-              ))}
-            </div>
-          </section>
-
-          <section className="panel section">
-            <h2>{state.tutorial.enabled ? 'Guided Steps' : 'Next Steps'}</h2>
-            <div className="milestone-list">
-              {milestones.map(item => (
-                <div key={item.text} className="milestone">
-                  <span>{item.text}</span>
-                  <span>Next</span>
-                </div>
-              ))}
-              {milestones.length === 0 && (
-                <div className="milestone">All early steps completed.</div>
-              )}
-            </div>
-          </section>
-
-          <section className="panel section">
-            <h2>Meta Progression</h2>
-            <div className="meta-row">
-              <span>Remnants</span>
-              <strong>{state.perks.remnants}</strong>
-            </div>
-            <div className="meta-row">
-              <span>Runes</span>
-              <strong>{(state.runes.ember || 0) + (state.runes.frost || 0)}</strong>
-            </div>
-            <div className="meta-row">
-              <span>Next Memory</span>
-              <strong>{Math.max(0, 10 - state.world.zone)} zones</strong>
-            </div>
-            <div className="meta-effects">
-              <div className="meta-title">Active Effects</div>
-              <div className="meta-effect">Production x{state.perks.prodMult.toFixed(2)}</div>
-              <div className="meta-effect">Attack x{state.perks.atkMult.toFixed(2)}</div>
-            </div>
-          </section>
-
-          {state.perks.remnants > 0 && (
-            <section className="panel section">
-              <h2>Ascension Runes</h2>
-              <div className="buildings-list">
-                {runeDefs.map(rune => (
-                  <div className="build-row" key={rune.id}>
-                    <div>
-                      <div className="item-title">
-                        <strong>{rune.name}</strong>
-                      </div>
-                      <div className="cost">{rune.desc}</div>
-                      <div className="cost">Cost: {rune.cost.remnants} remnants</div>
-                    </div>
-                    <div className="build-actions">
-                      <span className="owned">Owned {state.runes[rune.id] || 0}</span>
-                      <button className="ghost mini" onClick={() => craftRune(rune.id)} disabled={state.perks.remnants < rune.cost.remnants}>
-                        Carve
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <section className={`panel section ${state.unlocks.ash ? '' : 'locked'}`}>
-            <h2>Rites</h2>
-            {state.unlocks.ash ? (
-              <>
-                <div className="meta-row">
-                  <span>Patron</span>
-                  <strong>{patron ? patron.name : 'Unchosen'}</strong>
-                </div>
-                <div className="meta-row">
-                  <span>Blessing</span>
-                  <strong>
-                    {state.religion?.blessing?.patron
-                      ? `${PATRONS.find(entry => entry.id === state.religion.blessing.patron)?.name || 'Active'} · ${formatTime(Math.max(0, state.religion.blessing.expiresAt - state.time))}`
-                      : 'None'}
-                  </strong>
-                </div>
-                <div className="meta-effects">
-                  <div className="meta-title">Structures</div>
-                  {ritesBuildings.map(item => (
-                    <div key={`rite-${item.id}`} className="meta-effect">
-                      {item.name} x{state.religion?.buildings?.[item.id] || 0}
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="locked-row">
-                <span className="lock">Ash</span>
-                <span>Rituals and beliefs awaken later.</span>
-              </div>
-            )}
-          </section>
-
-          <section className="panel section">
-            <details className="log-section">
-              <summary>Event Log</summary>
-              <div className="event-log">
-                {state.log.map((line, idx) => (
-                  <div key={idx} className="event-row">{line}</div>
-                ))}
-              </div>
-            </details>
-          </section>
-          </div>
-        </>
+        <OverviewTab
+          state={state}
+          zoneName={zoneName}
+          zoneProgress={zoneProgress}
+          blocker={blocker}
+          logisticsTooltipText={logisticsTooltipText}
+          overcrowdingTooltipText={overcrowdingTooltipText}
+          logisticsPressure={logisticsPressure}
+          overcrowdingTone={overcrowdingTone}
+          overcrowdingDangerLevel={overcrowdingDangerLevel}
+          crowdFillPercent={crowdFillPercent}
+          scene={scene}
+          army={army}
+          forecast={forecast}
+          combatTimes={combatTimes}
+          cycleName={cycleName}
+          cycleTime={cycleTime}
+          modifiers={modifiers}
+          forecasts={forecasts}
+          milestones={milestones}
+          runeDefs={runeDefs}
+          ritesBuildings={ritesBuildings}
+          patron={patron}
+          showTooltip={showTooltip}
+          hideTooltip={hideTooltip}
+          setWarbandSend={(nextValue) => setState(prev => ({
+            ...prev,
+            ui: { ...prev.ui, warbandSend: nextValue }
+          }))}
+          startFight={startFight}
+          stopFight={stopFight}
+          scout={() => pushLog('Scouted the zone.')}
+          setCombatStance={(stance) => setState(prev => {
+            const next = {
+              ...prev,
+              ui: { ...prev.ui, combatStance: stance },
+              clansfolk: { ...prev.clansfolk }
+            };
+            if (next.clansfolk.army > 0) {
+              const stats = getArmyStats(next);
+              const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
+              next.clansfolk.armyHPMax = stats.hp;
+              next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+            }
+            return next;
+          })}
+          prestige={prestige}
+          craftRune={craftRune}
+          formatTime={formatTime}
+        />
         ) : activeTab === 'warcamp' && (state.buildings.warcamp || 0) > 0 ? (
-        <>
-          <div className="center-column">
-            <section className="panel center-section warcamp-overview">
-              <div className="placeholder-title">Warcamp</div>
-              <div className="warcamp-stats">
-                <div>
-                  <div className="stat-label">Warband</div>
-                  <div className="stat-value">{state.clansfolk.army} / {state.clansfolk.maxArmy}</div>
-                </div>
-                <div>
-                  <div className="stat-label">Warband HP</div>
-                  <div className="stat-value">{state.clansfolk.armyHP.toFixed(1)} / {state.clansfolk.armyHPMax.toFixed(1)}</div>
-                </div>
-                <div>
-                  <div className="stat-label">Attack</div>
-                  <div className="stat-value">{army.atk.toFixed(1)}</div>
-                </div>
-              </div>
-              <div className="warcamp-equipment">
-                <div className="stat-label">Equip Warband</div>
-                <div className="equipment-summary">
-                  {['weapon', 'shield', 'armor'].map(slot => {
-                    const equippedItems = Object.entries(state.equipment)
-                      .filter(([id, count]) => {
-                        const item = BLACKSMITH_ITEMS[id];
-                        return item && item.slot === slot && count > 0;
-                      })
-                      .map(([id, count]) => `${BLACKSMITH_ITEMS[id].name} x${count}`);
-                    const equippedCount = Object.entries(state.equipment).reduce((sum, [id, count]) => {
-                      const item = BLACKSMITH_ITEMS[id];
-                      if (!item || item.slot !== slot) return sum;
-                      return sum + count;
-                    }, 0);
-                    const capacity = Math.max(0, state.clansfolk.army || 0);
-                    const fill = capacity > 0 ? Math.min(100, (equippedCount / capacity) * 100) : 0;
-                    return (
-                      <div key={slot} className="equipment-summary-row">
-                        <span className="summary-label">{slot.toUpperCase()}</span>
-                        <span className="summary-value">{equippedItems.length ? equippedItems.join(', ') : 'None'}</span>
-                        <span className="summary-count">{equippedCount}/{capacity}</span>
-                        <button
-                          className="ghost mini"
-                          onClick={() => applyEquipSlot(slot, null)}
-                          disabled={equippedItems.length === 0 || state.world.fighting}
-                        >
-                          Unequip
-                        </button>
-                        <div className="summary-bar">
-                          <div style={{ width: `${fill}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <button className="ghost mini" onClick={() => equipSlots.forEach(slot => applyEquipSlot(slot.id, null))} disabled={state.clansfolk.army <= 0 || state.world.fighting}>
-                    Unequip All
-                  </button>
-                </div>
-                <div className="equipment-tiers">
-                  {equipmentTiers
-                    .filter(tier => !tier.unlock || state.unlocks[tier.unlock])
-                    .map(tier => {
-                      const tierItems = tier.items
-                        .map(id => {
-                          const item = BLACKSMITH_ITEMS[id];
-                          return item ? { id, ...item } : null;
-                        })
-                        .filter(Boolean);
-                      return (
-                        <div className="equipment-tier" key={tier.id}>
-                          <div className="tier-label">
-                            <strong>{tier.label}</strong>
-                            <span>{tierItems.length}x{equipSlots.length}</span>
-                          </div>
-                          <div className="tier-items">
-                            {tierItems.map(item => {
-                              const equipped = state.equipment[item.id] || 0;
-                              const stored = state.inventory[item.id] || 0;
-                              const equippedInSlot = Object.entries(state.equipment).reduce((sum, [equipId, count]) => {
-                                const equipItem = BLACKSMITH_ITEMS[equipId];
-                                if (!equipItem || equipItem.slot !== item.slot) return sum;
-                                return sum + count;
-                              }, 0);
-                              const slotRemaining = Math.max(0, (state.clansfolk.army || 0) - equippedInSlot);
-                              const itemStats = [];
-                              if (item.atk) itemStats.push(`+${item.atk} ATK`);
-                              if (item.hp) itemStats.push(`+${item.hp} HP`);
-                              return (
-                                <div className={`tier-item ${equipped > 0 ? 'equipped' : ''}`} key={item.id}>
-                                  <div className="item-title">
-                                    <strong>{item.name}</strong>
-                                  </div>
-                                  <div className="cost">Equipped {equipped} · Stored {stored} · Slots left {slotRemaining}</div>
-                                  <div className="cost">{itemStats.join(' ')}</div>
-                                  <div className="equip-controls">
-                                    <button className="ghost mini" onClick={() => adjustEquip(item.id, -1)} disabled={equipped <= 0 || state.world.fighting}>−</button>
-                                    <button className="mini" onClick={() => adjustEquip(item.id, 1)} disabled={stored <= 0 || slotRemaining <= 0 || state.world.fighting}>+</button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-                <div className="equip-actions">
-                  <button className="ghost mini" onClick={autoEquip} disabled={state.clansfolk.army <= 0 || state.world.fighting}>Auto-Equip Best</button>
-                </div>
-              </div>
-              <div className="warcamp-roster">
-                <div className="stat-label">Warband Roster</div>
-                <div className="roster-grid roster-backdrop" style={{ backgroundImage: `url(${stillBg})` }}>
-                  <div className="roster-dots">
-                    {Array.from({ length: state.clansfolk.army }).map((_, index) => {
-                      const rand = (seed) => {
-                        const value = (Math.sin(seed) * 10000) % 1;
-                        return value < 0 ? value + 1 : value;
-                      };
-                      const baseLeft = 8 + rand(index + 1) * 84;
-                      const baseTop = 160;
-                      const dx = Math.round(60 + rand(index + 21) * 80);
-                      const dy = Math.round(6 + rand(index + 31) * 18);
-                      const delay = rand(index + 41) * 1.2;
-                      const durX = 6 + rand(index + 51) * 4;
-                      const durY = 4 + rand(index + 61) * 3;
-                      return (
-                        <span
-                          key={`dot-${index}`}
-                          className="roster-dot"
-                          style={{
-                            left: `${baseLeft}%`,
-                            top: `${baseTop}px`,
-                            animationDelay: `${delay}s`,
-                            '--dx': `${dx}px`,
-                            '--dy': `${dy}px`,
-                            '--durx': `${durX}s`,
-                            '--dury': `${durY}s`
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                  {state.clansfolk.army === 0 && (
-                    <div className="roster-empty">No clansfolk assigned to the warband yet.</div>
-                  )}
-                </div>
-              </div>
-              <div className="warcamp-inventory">
-                <div className="stat-label">Equipment Inventory</div>
-                <div className="inventory-grid">
-                  {blacksmithItems.map(item => (
-                    <React.Fragment key={`inv-${item.id}`}>
-                      <div>{item.name}</div>
-                      <strong>{state.inventory[item.id] || 0}</strong>
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-            </section>
-          </div>
-          <div className="right-column">
-            {state.unlocks.blacksmith ? (
-              <section className="panel section">
-                <h2>Blacksmith</h2>
-                <div className="assign-step">
-                  <span>Craft</span>
-                  <div className="assign-buttons">
-                    {[1, 5, 10, 'max'].map(step => (
-                      <button
-                        key={step}
-                        className={`mini ${state.ui.craftStep === step ? 'selected' : ''}`}
-                        onClick={() => setState(prev => ({
-                          ...prev,
-                          ui: { ...prev.ui, craftStep: step }
-                        }))}
-                      >
-                        {step === 'max' ? 'Max' : `x${step}`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="assign-step">
-                  <span>Tier</span>
-                  <div className="assign-buttons">
-                    {availableBlacksmithTiers.map((tier, index) => (
-                      <button
-                        key={tier.id}
-                        className={`mini ${selectedBlacksmithTier === tier.id ? 'selected' : ''}`}
-                        onClick={() => setState(prev => ({
-                          ...prev,
-                          ui: { ...prev.ui, blacksmithTier: tier.id }
-                        }))}
-                      >
-                        {`Tier ${index + 1}`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="buildings-list">
-                  {blacksmithItemsByTier.map(item => (
-                    <div className="build-row" key={item.id}>
-                      <div>
-                        <div className="item-title">
-                          <strong>{item.name}</strong>
-                        </div>
-                        <div className="cost">Cost: {Object.entries(item.cost).map(([r, v]) => `${v} ${r}`).join(', ')}</div>
-                      </div>
-                      <div className="build-actions">
-                        <span className="owned">Owned {state.inventory[item.id] || 0}</span>
-                        <button
-                          className="ghost mini"
-                          onClick={() => craftItem(item.id, state.ui.craftStep)}
-                          disabled={!canAfford(state, item.cost)}
-                        >
-                          Craft
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ) : (
-              <section className="panel section locked">
-                <h2>Blacksmith</h2>
-                <div className="locked-row">
-                  <span className="lock">Locked</span>
-                  <span>Unlock via the Blacksmithing innovation.</span>
-                </div>
-              </section>
-            )}
-            <section className="panel section">
-              <h2>Command Center</h2>
-              <div className="command-card">
-                <div className="stat-label">Commander</div>
-                <div className="command-hero">
-                  <div className="command-avatar" />
-                  <div>
-                    <div className="command-name">Runa Iceborn</div>
-                    <div className="command-title">Warcamp Warden</div>
-                    <div className="command-traits">
-                      <span>+6% Warband ATK</span>
-                      <span>+10% Rally Speed</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="command-actions">
-                  <button className="ghost mini" disabled>Choose Commander</button>
-                  <button className="ghost mini" disabled>Archive Commander</button>
-                </div>
-                <div className="placeholder-subtitle">Future: unique stats, traits, and persistent legends.</div>
-              </div>
-            </section>
-          </div>
-        </>
+        <WarcampTab
+          state={state}
+          army={army}
+          equipSlots={equipSlots}
+          equipmentTiers={equipmentTiers}
+          blacksmithItems={blacksmithItems}
+          availableBlacksmithTiers={availableBlacksmithTiers}
+          selectedBlacksmithTier={selectedBlacksmithTier}
+          blacksmithItemsByTier={blacksmithItemsByTier}
+          applyEquipSlot={applyEquipSlot}
+          adjustEquip={adjustEquip}
+          autoEquip={autoEquip}
+          craftItem={craftItem}
+          onSetCraftStep={(step) => setState(prev => ({
+            ...prev,
+            ui: { ...prev.ui, craftStep: step }
+          }))}
+          onSetBlacksmithTier={(tierId) => setState(prev => ({
+            ...prev,
+            ui: { ...prev.ui, blacksmithTier: tierId }
+          }))}
+        />
         ) : activeTab === 'rites' && state.unlocks.ash ? (
-        <>
-          <div className="center-column">
-            <section className="panel center-section rites-panel">
-              <div className="panel-header">
-                <h2>Rites</h2>
-                <div className="panel-subtitle">Choose a patron, then raise rites with ash.</div>
-              </div>
-              <div className="rites-patrons">
-                {PATRONS.map(entry => {
-                  const isActive = state.religion?.patron === entry.id;
-                  const isSelected = state.ui?.selectedPatron === entry.id;
-                  const canChoose = state.unlocks.ash;
-                  return (
-                    <div key={entry.id} className={`patron-card ${isActive ? 'active' : ''} ${isSelected ? 'selected' : ''}`}>
-                      <div className="patron-title">{entry.name}</div>
-                      <div className="patron-desc">{entry.desc}</div>
-                      <div className="patron-detail">{entry.detail}</div>
-                      <div className="cost">Cost: {Object.entries(entry.cost).map(([r, v]) => `${v} ${r}`).join(', ')}</div>
-                      <div className="patron-detail">Session: 2–3 minutes</div>
-                      <div className="patron-detail">Reward: 20 minutes</div>
-                      <button
-                        className="mini"
-                        onClick={() => choosePatron(entry.id)}
-                        disabled={isActive || !canChoose}
-                      >
-                        {isActive ? 'Devoted' : isSelected ? 'Selected' : 'Select'}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="rites-summary">
-                <div className="stat-label">Current Patron</div>
-                <div className="stat-value">{patron ? patron.name : state.ui?.selectedPatron ? 'Ready to devote' : 'None chosen'}</div>
-                <div className="rites-note">
-                  {patron ? patron.desc : 'Select a patron to unlock rites buildings.'}
-                </div>
-                <div className="ritual-controls">
-                  <button
-                    className="mini"
-                    onClick={devotePatron}
-                    disabled={!state.ui?.selectedPatron || state.religion?.patron === state.ui?.selectedPatron || !canAfford(state, (PATRONS.find(entry => entry.id === state.ui?.selectedPatron)?.cost || {}))}
-                  >
-                    {state.religion?.patron ? 'Re‑Devote' : 'Devote'}
-                  </button>
-                  <button
-                    className="mini"
-                    onClick={startRitual}
-                    disabled={!patron || state.religion?.ritual?.active}
-                  >
-                    {state.religion?.ritual?.active ? 'Ritual Active' : 'Begin Ritual'}
-                  </button>
-                </div>
-              </div>
-              {state.religion?.ritual?.active && (
-                <div className="ritual-panel">
-                  <div className="ritual-row">
-                    <span>Time Left</span>
-                    <strong>{Math.ceil(state.religion.ritual.timeLeft)}s</strong>
-                  </div>
-                  <div className="ritual-row">
-                    <span>Hits</span>
-                    <strong>{state.religion.ritual.hits} / {state.religion.ritual.required}</strong>
-                  </div>
-                  {state.religion.ritual.type === 'archery' && (
-                    <div className="ritual-row">
-                      <span>Spears</span>
-                      <strong>{state.religion.ritual.arrowsLeft} / {state.religion.ritual.totalArrows}</strong>
-                    </div>
-                  )}
-                  {state.religion.ritual.type === 'archery' ? (
-                    <>
-                      <ArrowDuelCanvas
-                        resetToken={state.religion.ritual.startTime}
-                        onHit={(spearsLeft) => setState(prev => {
-                          const ritual = prev.religion?.ritual;
-                          if (!ritual?.active || ritual.type !== 'archery') return prev;
-                          const nextHits = Math.min(ritual.required, ritual.hits + 1);
-                          return {
-                            ...prev,
-                            religion: {
-                              ...prev.religion,
-                              ritual: {
-                                ...ritual,
-                                hits: nextHits,
-                                arrowsLeft: spearsLeft
-                              }
-                            }
-                          };
-                        })}
-                        onMiss={(spearsLeft) => setState(prev => {
-                          const ritual = prev.religion?.ritual;
-                          if (!ritual?.active || ritual.type !== 'archery') return prev;
-                          return {
-                            ...prev,
-                            religion: {
-                              ...prev.religion,
-                              ritual: {
-                                ...ritual,
-                                arrowsLeft: spearsLeft
-                              }
-                            }
-                          };
-                        })}
-                        onFinalHit={(holdSeconds) => setState(prev => {
-                          const ritual = prev.religion?.ritual;
-                          if (!ritual?.active) return prev;
-                          const holdUntil = performance.now() / 1000 + holdSeconds;
-                          return {
-                            ...prev,
-                            religion: {
-                              ...prev.religion,
-                              ritual: {
-                                ...ritual,
-                                holdUntil,
-                                timeLeft: Math.max(ritual.timeLeft, holdSeconds)
-                              }
-                            }
-                          };
-                        })}
-                        onSuccess={() => setState(prev => finishRitual(prev, prev.religion.ritual, true, 'Ritual succeeded. The storm roars back.'))}
-                        onFail={() => setState(prev => finishRitual(prev, prev.religion.ritual, false, 'Ritual failed. The storm passes unanswered.'))}
-                      />
-                    </>
-                  ) : (
-                    <ChantMinigame
-                      ritual={state.religion.ritual}
-                      onChant={chantRitual}
-                    />
-                  )}
-                </div>
-              )}
-            </section>
-          </div>
-          <div className="right-column">
-            <section className="panel section">
-              <h2>Rites Buildings</h2>
-              {!state.religion?.patron ? (
-                <div className="locked-row">
-                  <span className="lock">Devotion</span>
-                  <span>Choose a patron before building rites.</span>
-                </div>
-              ) : (
-                <div className="buildings-list">
-                  {ritesBuildings.map(item => {
-                    const owned = state.religion?.buildings?.[item.id] || 0;
-                    const scaledCost = getScaledCost(item.cost, owned, item.scale || 1.2);
-                    return (
-                      <div key={`rite-build-${item.id}`} className="build-row">
-                        <div>
-                          <div className="item-title">
-                            <strong>{item.name}</strong>
-                          </div>
-                          <div className="cost">{item.desc}</div>
-                          <div className="cost">Cost: {Object.entries(scaledCost).map(([r, v]) => `${v} ${r}`).join(', ')}</div>
-                        </div>
-                        <div className="build-actions">
-                          <span className="owned">Owned {owned}</span>
-                          <button className="ghost mini" onClick={() => buildRite(item.id)} disabled={!canAfford(state, scaledCost)}>
-                            Build
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          </div>
-        </>
+        <RitesTab
+          state={state}
+          patron={patron}
+          ritesBuildings={ritesBuildings}
+          choosePatron={choosePatron}
+          devotePatron={devotePatron}
+          startRitual={startRitual}
+          chantRitual={chantRitual}
+          buildRite={buildRite}
+          getScaledCost={getScaledCost}
+          onArcheryHit={handleArcheryHit}
+          onArcheryMiss={handleArcheryMiss}
+          onArcheryFinalHit={handleArcheryFinalHit}
+          onArcherySuccess={() => setState(prev => finishRitual(prev, prev.religion.ritual, true, 'Ritual succeeded. The storm roars back.'))}
+          onArcheryFail={() => setState(prev => finishRitual(prev, prev.religion.ritual, false, 'Ritual failed. The storm passes unanswered.'))}
+        />
+        ) : activeTab === 'travel' ? (
+        <TravelTab
+          state={state}
+          travelPartyCap={travelPartyCap}
+          onSetExpeditionSend={setExpeditionSend}
+          onStartExpedition={startExpedition}
+          build={build}
+          getScaledCost={getScaledCost}
+          getScale={getScale}
+          applyWoodDiscount={applyWoodDiscount}
+        />
         ) : (
         <>
           <div className="center-column">
@@ -1988,10 +1266,37 @@ export default function App() {
  */
 function groupBuildings(buildings) {
   const groups = {};
+  const buildingOrder = [
+    'grasshut',
+    'timberhall',
+    'longhouse',
+    'stonekeep',
+    'storehouse',
+    'smokehouse',
+    'woodcuttershed',
+    'masonryard',
+    'smeltery',
+    'granaryhall',
+    'timberyard',
+    'warcamp',
+    'commander',
+    'skaldhall',
+    'ashaltar',
+    'sewer'
+  ];
+  const orderIndex = new Map(buildingOrder.map((id, index) => [id, index]));
   Object.entries(buildings).forEach(([id, data]) => {
     const group = data.group || 'General';
     if (!groups[group]) groups[group] = [];
     groups[group].push({ id, data });
+  });
+  Object.keys(groups).forEach((group) => {
+    groups[group].sort((a, b) => {
+      const aIdx = orderIndex.has(a.id) ? orderIndex.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const bIdx = orderIndex.has(b.id) ? orderIndex.get(b.id) : Number.MAX_SAFE_INTEGER;
+      if (aIdx !== bIdx) return aIdx - bIdx;
+      return a.data.name.localeCompare(b.data.name);
+    });
   });
   return groups;
 }
@@ -2029,7 +1334,7 @@ function getVisibleItems(buildings, upgrades, state) {
       items[id] = data;
       return;
     }
-    if ((id === 'storehouse' || id === 'warcamp' || id === 'stonekeep' || id === 'skaldhall' || id === 'quarrycamp' || id === 'foundry' || id === 'ashaltar' || id === 'granaryhall' || id === 'timberyard' || id === 'masonryard' || id === 'smeltery') && hasRequirements(state, data.requires)) {
+    if ((id === 'storehouse' || id === 'warcamp' || id === 'stonekeep' || id === 'skaldhall' || id === 'ashaltar' || id === 'granaryhall' || id === 'timberyard' || id === 'masonryard' || id === 'smeltery') && hasRequirements(state, data.requires)) {
       items[id] = data;
       return;
     }
@@ -2038,12 +1343,13 @@ function getVisibleItems(buildings, upgrades, state) {
   Object.entries(upgrades).forEach(([id, data]) => {
     if (data.group === 'Innovation' && (state.upgrades[id] || 0) > 0) return;
     if (data.group === 'Innovation' && !unlocks.upgradesTier1) return;
+    if (data.group === 'Innovation') {
+      const innovationTier = data.tier || 1;
+      const currentTier = unlocks.upgradesTier2 ? 2 : 1;
+      if (innovationTier > currentTier) return;
+    }
     if (data.group === 'Travel' && !unlocks.travel) return;
     if (!hasRequirements(state, data.requires)) return;
-    if (data.group === 'Innovation' && !unlocks.upgradesTier2) {
-      const tier2 = ['steelhooks', 'fellingaxes'];
-      if (tier2.includes(id)) return;
-    }
     if (data.requiresZone && state.world.zone < data.requiresZone) return;
     items[id] = data;
   });
@@ -2078,33 +1384,43 @@ function getRitualMeter(time, ritual) {
 }
 
 /**
- * Style for the ritual band.
- * @param {object} ritual
- * @returns {object}
+ * Convert travel upgrades into an expedition duration multiplier.
+ * @param {object} state
+ * @returns {number}
  */
-function getRitualBandStyle(ritual) {
-  const width = Math.max(0.05, Math.min(0.6, ritual.bandWidth || 0.14));
-  const left = Math.max(0, Math.min(1 - width, (ritual.bandCenter || 0.5) - width / 2));
-  return { left: `${left * 100}%`, width: `${width * 100}%` };
+function getTravelSpeedMult(state) {
+  const longboats = state.upgrades?.longboats || 0;
+  const sleds = state.upgrades?.icesleds || 0;
+  const reduction = Math.min(0.7, longboats * 0.2 + sleds * 0.35);
+  return Math.max(0.3, 1 - reduction);
 }
 
 /**
- * Style for the ritual pointer.
- * @param {number} time
- * @param {object} ritual
- * @returns {object}
+ * Maximum expedition party size for Travel missions.
+ * Starts small and scales with travel tech.
+ * @param {object} state
+ * @returns {number}
  */
-// ritual pointer uses rAF transform for smoothness
+function getTravelPartyCap(state) {
+  const longboats = state.upgrades?.longboats || 0;
+  const sleds = state.upgrades?.icesleds || 0;
+  return 10 + longboats * 5 + sleds * 10;
+}
 
 /**
  * Compute scaled costs based on owned count and scale factor.
  * @param {Record<string, number>} baseCost
  * @param {number} owned
  * @param {number} scale
+ * @param {string} [itemId]
  * @returns {Record<string, number>}
  */
-function getScaledCost(baseCost, owned, scale) {
-  const factor = Math.pow(scale, owned);
+function getScaledCost(baseCost, owned, scale, itemId = '') {
+  let factor = Math.pow(scale, owned);
+  if (itemId === 'storehouse' && owned > 10) {
+    // After level 10, storehouse costs ramp much harder to slow runaway cap scaling.
+    factor = Math.pow(scale, 10) * Math.pow(1.55, owned - 10);
+  }
   const scaled = {};
   Object.entries(baseCost).forEach(([key, value]) => {
     scaled[key] = Math.max(1, Math.round(value * factor));
@@ -2113,14 +1429,30 @@ function getScaledCost(baseCost, owned, scale) {
 }
 
 /**
+ * Apply a percentage discount to wood costs only.
+ * @param {Record<string, number>} cost
+ * @param {number} discount
+ * @returns {Record<string, number>}
+ */
+function applyWoodDiscount(cost, discount) {
+  if (!cost.wood || discount <= 0) return cost;
+  return {
+    ...cost,
+    wood: Math.max(1, Math.round(cost.wood * (1 - discount)))
+  };
+}
+
+/**
  * Build tooltip text for a build/upgrade item.
  * @param {object} data
  * @param {string} id
  * @param {number} owned
  * @param {object} state
+ * @param {Record<string, number>} [scaledCost]
+ * @param {Record<string, number>} [finalCost]
  * @returns {string}
  */
-function getItemTooltipText(data, id, owned, state) {
+function getItemTooltipText(data, id, owned, state, scaledCost, finalCost) {
   if (id === 'smokehouse') {
     const storehouseMult = 1 + (state.buildings.storehouse || 0) * 0.5;
     const effective = Math.round(200 * storehouseMult);
@@ -2134,32 +1466,31 @@ function getItemTooltipText(data, id, owned, state) {
   if (id === 'skaldhall') {
     return 'Raises knowledge storage by 200 per level.';
   }
-  if (id === 'quarrycamp') {
-    const effectiveCap = Math.round((150 + (state.buildings.storehouse || 0) * 75));
-    return `Raises stone output by 12% and stone storage by about ${effectiveCap} per level.`;
-  }
   if (id === 'granaryhall') {
-    const effectiveCap = Math.round((250 + (state.buildings.storehouse || 0) * 125));
-    return `Raises food output by 8% and food storage by about ${effectiveCap} per level.`;
+    const reduction = Math.min(60, (state.buildings.granaryhall || 0) * 8);
+    return `Famine buffer: reduces overcrowding food-drain penalties by 8% per level (current ${reduction}%).`;
   }
   if (id === 'timberyard') {
-    const effectiveCap = Math.round((250 + (state.buildings.storehouse || 0) * 125));
-    return `Raises wood output by 8% and wood storage by about ${effectiveCap} per level.`;
+    const reduction = Math.min(35, (state.buildings.timberyard || 0) * 4);
+    const before = scaledCost?.wood || 0;
+    const after = finalCost?.wood || before;
+    const saved = Math.max(0, before - after);
+    return `Supply yard: reduces wood costs by 4% per level (current ${reduction}%). This purchase saves ${saved} wood.`;
   }
   if (id === 'masonryard') {
     const effectiveCap = Math.round((150 + (state.buildings.storehouse || 0) * 75));
-    return `Raises stone output by 10% and stone storage by about ${effectiveCap} per level.`;
+    return `Raises stone storage by about ${effectiveCap} per level.`;
   }
   if (id === 'smeltery') {
     const effectiveCap = Math.round((150 + (state.buildings.storehouse || 0) * 75));
-    return `Raises metal output by 10% and metal storage by about ${effectiveCap} per level.`;
-  }
-  if (id === 'foundry') {
-    const effectiveCap = Math.round((150 + (state.buildings.storehouse || 0) * 75));
-    return `Raises metal output by 12% and metal storage by about ${effectiveCap} per level.`;
+    return `Raises metal storage by about ${effectiveCap} per level.`;
   }
   if (id === 'ashaltar') {
     return 'Raises ash gain from battle by 15% and ash storage by 60 per level.';
+  }
+  if (id === 'warcamp') {
+    const cap = getWarcampCap(state);
+    return `Military camp: first level adds +1 warband slot, later levels add +2. Owned ${owned}/${cap} warcamps.`;
   }
   if (id === 'storehouse') {
     const bonus = (state.buildings.storehouse || 0) * 50;
@@ -2177,11 +1508,53 @@ function getItemTooltipText(data, id, owned, state) {
  */
 function getBuildingTintClass(id) {
   if (id === 'grasshut' || id === 'timberhall' || id === 'longhouse' || id === 'stonekeep') return 'tint-housing';
-  if (id === 'storehouse' || id === 'smokehouse' || id === 'woodcuttershed' || id === 'quarrycamp' || id === 'foundry' || id === 'granaryhall' || id === 'timberyard' || id === 'masonryard' || id === 'smeltery') return 'tint-storage';
+  if (id === 'storehouse' || id === 'smokehouse' || id === 'woodcuttershed' || id === 'masonryard' || id === 'smeltery' || id === 'sewer') return 'tint-storage';
+  if (id === 'granaryhall' || id === 'timberyard') return 'tint-logistics';
   if (id === 'ashaltar') return 'tint-warcamp';
   if (id === 'warcamp') return 'tint-warcamp';
   if (id === 'skaldhall') return 'tint-skald';
   return '';
+}
+
+function getWarcampCap(state) {
+  if ((state.upgrades.warlogistics2 || 0) > 0) return 15;
+  if ((state.upgrades.warlogistics1 || 0) > 0) return 10;
+  return 5;
+}
+
+/**
+ * Compute net per-second resource change as displayed to the player.
+ * Includes production minus recurring upkeep/consumption drains.
+ * @param {object} state
+ * @param {Record<string, number>} rates
+ * @returns {Record<string, number>}
+ */
+function getResourceNetRates(state, rates) {
+  const next = { ...rates };
+
+  const logisticsBuildings = (state.buildings.ashaltar || 0)
+    + (state.buildings.skaldhall || 0)
+    + (state.buildings.stonekeep || 0)
+    + (state.buildings.warcamp || 0);
+  const storehouses = state.buildings.storehouse || 0;
+  const logisticsFoodCost = logisticsBuildings * 0.2;
+  const logisticsWoodCost = (state.buildings.masonryard || 0) * 0.08
+    + (state.buildings.smeltery || 0) * 0.08
+    + (state.buildings.ashaltar || 0) * 0.08
+    + (state.buildings.stonekeep || 0) * 0.06
+    + (state.buildings.skaldhall || 0) * 0.05
+    + storehouses * 0.06;
+  const logisticsStoneCost = storehouses * 0.05;
+  const logisticsMetalCost = storehouses * 0.03;
+
+  const foodNeed = (state.clansfolk.total || 0) * 0.25 * (state.world?.overcrowdingFoodMult || 1);
+
+  next.food = (next.food || 0) - logisticsFoodCost - foodNeed;
+  next.wood = (next.wood || 0) - logisticsWoodCost;
+  if (state.unlocks.stone) next.stone = (next.stone || 0) - logisticsStoneCost;
+  if (state.unlocks.metal) next.metal = (next.metal || 0) - logisticsMetalCost;
+
+  return next;
 }
 
 /**
@@ -2228,25 +1601,6 @@ function hasRequirements(state, requires) {
     return false;
   });
 }
-
-/**
- * Base storage value before storehouse multiplier.
- * @param {object} state
- * @param {string} key
- * @returns {number}
- */
-function getBaseStorage(state, key) {
-  if (key === 'food') {
-    return 200 + (state.buildings.smokehouse || 0) * 200 + (state.buildings.granaryhall || 0) * 250;
-  }
-  if (key === 'wood') return 200 + (state.buildings.timberyard || 0) * 250;
-  if (key === 'stone') return state.unlocks.stone ? 200 + (state.buildings.quarrycamp || 0) * 150 + (state.buildings.masonryard || 0) * 150 : 0;
-  if (key === 'metal') return state.unlocks.metal ? 200 + (state.buildings.foundry || 0) * 150 + (state.buildings.smeltery || 0) * 150 : 0;
-  if (key === 'ash') return state.unlocks.ash ? 100 + (state.buildings.ashaltar || 0) * 60 : 0;
-  if (key === 'knowledge') return state.unlocks.knowledge ? 200 : 0;
-  return 0;
-}
-
 
 /**
  * Format seconds into m:ss.
@@ -2317,8 +1671,6 @@ function getStageState(stage) {
       smeltery: 2,
       warcamp: 3,
       skaldhall: 2,
-      quarrycamp: 3,
-      foundry: 2,
       ashaltar: 2
     };
     Object.keys(base.upgrades).forEach((key) => {
@@ -2488,6 +1840,17 @@ function getForecasts(state, caps, rates) {
   }
   if (state.world.enemyHP / Math.max(1, state.world.enemyHPMax) > 0.9 && state.world.zone >= 3) {
     items.push({ text: 'Enemy resistance is stalling progress', tone: 'warn' });
+  }
+  const logisticsPressure = state.world?.logisticsPressure || 0;
+  if (logisticsPressure >= 0.2) {
+    const outputPenalty = Math.max(0, (1 - Math.max(0.4, 1 - logisticsPressure * 0.6)) * 100);
+    items.push({ text: `Logistics pressure cutting output by ${outputPenalty.toFixed(0)}%`, tone: logisticsPressure >= 0.45 ? 'danger' : 'warn' });
+  }
+  const overcrowding = state.world?.overcrowdingRatio || 0;
+  if (overcrowding >= 0.95) {
+    const overPct = Math.max(0, (overcrowding - 1) * 100);
+    const growthPenalty = (state.world?.overcrowdingGrowthPenalty || 0) * 100;
+    items.push({ text: `Overcrowding at ${overPct.toFixed(0)}% over cap (growth -${growthPenalty.toFixed(0)}%)`, tone: overcrowding >= 1.05 ? 'danger' : 'warn' });
   }
   return items.slice(0, 3);
 }

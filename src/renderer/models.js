@@ -5,7 +5,7 @@ export const START_STATE = {
   resources: { food: 0, wood: 0, stone: 0, metal: 0, ash: 0, knowledge: 0 },
   clansfolk: { total: 3, idle: 3, army: 0, maxArmy: 5, growthProgress: 0, starvationProgress: 0, armyHP: 0, armyHPMax: 0 },
   jobs: { forager: 0, woodcutter: 0, quarry: 0, smelter: 0, lorekeeper: 0, ashwalker: 0, drillmaster: 0 },
-  buildings: { grasshut: 0, timberhall: 0, longhouse: 0, stonekeep: 0, storehouse: 0, smokehouse: 0, woodcuttershed: 0, granaryhall: 0, timberyard: 0, masonryard: 0, smeltery: 0, warcamp: 0, skaldhall: 0, quarrycamp: 0, foundry: 0, ashaltar: 0 },
+  buildings: { grasshut: 0, timberhall: 0, longhouse: 0, stonekeep: 0, storehouse: 0, smokehouse: 0, woodcuttershed: 0, granaryhall: 0, timberyard: 0, masonryard: 0, smeltery: 0, warcamp: 0, skaldhall: 0, ashaltar: 0 },
   upgrades: {
     nets: 0,
     steelhooks: 0,
@@ -30,8 +30,6 @@ export const START_STATE = {
     blacksmithing: 0,
     armory1: 0,
     armory2: 0,
-    quarrylogistics: 0,
-    forgeprotocols: 0,
     ashdoctrine: 0,
     longboats: 0,
     icesleds: 0,
@@ -48,6 +46,10 @@ export const START_STATE = {
     lastEnemyHit: 0,
     lastWarbandHit: 0,
     logisticsPressure: 0,
+    overcrowdingRatio: 0,
+    overcrowdingGrowthPenalty: 0,
+    overcrowdingOutputPenalty: 0,
+    overcrowdingFoodMult: 1,
     expedition: {
       active: false,
       type: null,

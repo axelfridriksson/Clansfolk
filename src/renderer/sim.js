@@ -42,30 +42,71 @@ export function simulateTick(prev, dt = 1) {
     next.clansfolk.maxArmy = 1 + 1 + Math.max(0, warcamps - 1) * 2;
   }
   const totalClansfolk = next.clansfolk.total + next.clansfolk.army;
+  const maxPop = 10 + grassHuts * 4 + timberHalls * 6 + longhouses * 8 + (next.buildings.stonekeep || 0) * 10;
+  const crowdRatio = maxPop > 0 ? next.clansfolk.total / maxPop : 0;
+  const crowdStart = maxPop >= 150 ? 0.9 : 0.95;
+  let overcrowdingGrowthPenalty = 0;
+  let overcrowdingOutputPenalty = 0;
+  let overcrowdingFoodMult = 1;
+  let overcrowdingStarvationMult = 1;
+  if (crowdRatio >= crowdStart && crowdRatio < 1) {
+    const t = (crowdRatio - crowdStart) / (1 - crowdStart);
+    overcrowdingGrowthPenalty = 0.1 * t;
+    overcrowdingOutputPenalty = 0.06 * t;
+    overcrowdingFoodMult = 1 + 0.2 * t;
+  } else if (crowdRatio >= 1 && crowdRatio < 1.1) {
+    const t = (crowdRatio - 1) / 0.1;
+    overcrowdingGrowthPenalty = 0.1 + 0.25 * t;
+    overcrowdingOutputPenalty = 0.08 + 0.17 * t;
+    overcrowdingFoodMult = 1.2 + 0.5 * t;
+  } else if (crowdRatio >= 1.1) {
+    const overflow = crowdRatio - 1.1;
+    overcrowdingGrowthPenalty = 1;
+    overcrowdingOutputPenalty = 0.25 + Math.min(0.2, overflow * 0.35);
+    overcrowdingFoodMult = 1.7 + Math.min(0.6, overflow * 0.8);
+    overcrowdingStarvationMult = 1.5;
+  }
+  const granaryMitigation = Math.min(0.6, (next.buildings.granaryhall || 0) * 0.08);
+  overcrowdingFoodMult = 1 + (overcrowdingFoodMult - 1) * (1 - granaryMitigation);
+  next.world.overcrowdingRatio = crowdRatio;
+  next.world.overcrowdingGrowthPenalty = clamp(overcrowdingGrowthPenalty, 0, 1);
+  next.world.overcrowdingOutputPenalty = clamp(overcrowdingOutputPenalty, 0, 0.85);
+  next.world.overcrowdingFoodMult = overcrowdingFoodMult;
   if (!next.unlocks.weapons && totalClansfolk >= 12) next.unlocks.weapons = true;
   if (!next.unlocks.upgradesTier1 && grassHuts >= 10) next.unlocks.upgradesTier1 = true;
   if (!next.unlocks.upgradesTier2 && grassHuts >= 20 && next.world.zone >= 6) next.unlocks.upgradesTier2 = true;
   if (!next.unlocks.travel && next.unlocks.upgradesTier1) next.unlocks.travel = true;
 
-  const logisticsBuildings = (next.buildings.quarrycamp || 0)
-    + (next.buildings.foundry || 0)
-    + (next.buildings.ashaltar || 0)
+  const logisticsBuildings = (next.buildings.ashaltar || 0)
     + (next.buildings.skaldhall || 0)
     + (next.buildings.stonekeep || 0)
     + (next.buildings.warcamp || 0);
+  const storehouses = next.buildings.storehouse || 0;
   const logisticsFoodCost = logisticsBuildings * 0.2 * dt;
-  const logisticsWoodCost = (next.buildings.quarrycamp || 0) * 0.12 * dt
-    + (next.buildings.foundry || 0) * 0.12 * dt
+  const logisticsWoodCost = (next.buildings.masonryard || 0) * 0.08 * dt
+    + (next.buildings.smeltery || 0) * 0.08 * dt
     + (next.buildings.ashaltar || 0) * 0.08 * dt
     + (next.buildings.stonekeep || 0) * 0.06 * dt
-    + (next.buildings.skaldhall || 0) * 0.05 * dt;
+    + (next.buildings.skaldhall || 0) * 0.05 * dt
+    + storehouses * 0.06 * dt;
+  const logisticsStoneCost = storehouses * 0.05 * dt;
+  const logisticsMetalCost = storehouses * 0.03 * dt;
   const availableFoodForLogistics = next.resources.food;
   const availableWoodForLogistics = next.resources.wood;
+  const availableStoneForLogistics = next.resources.stone || 0;
+  const availableMetalForLogistics = next.resources.metal || 0;
   const consumedFoodForLogistics = Math.min(availableFoodForLogistics, logisticsFoodCost);
   const consumedWoodForLogistics = Math.min(availableWoodForLogistics, logisticsWoodCost);
+  const consumedStoneForLogistics = Math.min(availableStoneForLogistics, logisticsStoneCost);
+  const consumedMetalForLogistics = Math.min(availableMetalForLogistics, logisticsMetalCost);
   const foodShortage = logisticsFoodCost > 0 ? (logisticsFoodCost - consumedFoodForLogistics) / logisticsFoodCost : 0;
   const woodShortage = logisticsWoodCost > 0 ? (logisticsWoodCost - consumedWoodForLogistics) / logisticsWoodCost : 0;
-  next.world.logisticsPressure = clamp((foodShortage + woodShortage) / 2, 0, 1);
+  const stoneShortage = logisticsStoneCost > 0 ? (logisticsStoneCost - consumedStoneForLogistics) / logisticsStoneCost : 0;
+  const metalShortage = logisticsMetalCost > 0 ? (logisticsMetalCost - consumedMetalForLogistics) / logisticsMetalCost : 0;
+  const shortageParts = [foodShortage, woodShortage];
+  if (logisticsStoneCost > 0) shortageParts.push(stoneShortage);
+  if (logisticsMetalCost > 0) shortageParts.push(metalShortage);
+  next.world.logisticsPressure = clamp(shortageParts.reduce((sum, value) => sum + value, 0) / shortageParts.length, 0, 1);
 
   const nextCaps = calcCaps(next);
   const nextRates = calcRates(next);
@@ -85,18 +126,25 @@ export function simulateTick(prev, dt = 1) {
 
   next.resources.food = clamp(next.resources.food - consumedFoodForLogistics, 0, nextCaps.food);
   next.resources.wood = clamp(next.resources.wood - consumedWoodForLogistics, 0, nextCaps.wood);
+  if (next.unlocks.stone) {
+    next.resources.stone = clamp((next.resources.stone || 0) - consumedStoneForLogistics, 0, nextCaps.stone);
+  }
+  if (next.unlocks.metal) {
+    next.resources.metal = clamp((next.resources.metal || 0) - consumedMetalForLogistics, 0, nextCaps.metal);
+  }
 
-  const maxPop = 10 + grassHuts * 4 + timberHalls * 6 + longhouses * 8 + (next.buildings.stonekeep || 0) * 10;
   const growthBonus = (1 + (next.upgrades.growthrites || 0) * BALANCE.growthBonusPerLevel) * (1 + religion.growthMult);
-  const foodNeeded = next.clansfolk.total * BALANCE.foodPerClansfolk * dt;
+  const foodNeeded = next.clansfolk.total * BALANCE.foodPerClansfolk * overcrowdingFoodMult * dt;
   const availableFood = next.resources.food;
   const consumedFood = Math.min(availableFood, foodNeeded);
   next.resources.food = clamp(availableFood - consumedFood, 0, nextCaps.food);
-  const starvationRatio = foodNeeded > 0 ? Math.max(0, (foodNeeded - consumedFood) / foodNeeded) : 0;
+  const starvationRatioRaw = foodNeeded > 0 ? Math.max(0, (foodNeeded - consumedFood) / foodNeeded) : 0;
+  const starvationRatio = clamp(starvationRatioRaw * overcrowdingStarvationMult, 0, 1);
+  next.world.populationDeclining = starvationRatio > 0;
 
   const idleCount = Math.max(0, next.clansfolk.idle);
   const idleEffective = Math.min(BALANCE.idleGrowthCap, idleCount);
-  const baseGrowthRate = BALANCE.growthBase * idleEffective * growthBonus;
+  const baseGrowthRate = BALANCE.growthBase * idleEffective * growthBonus * (1 - next.world.overcrowdingGrowthPenalty);
   const growthRate = idleCount > 0 && starvationRatio === 0
     ? baseGrowthRate
     : 0;

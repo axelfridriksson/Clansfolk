@@ -41,12 +41,14 @@ body::before {
     radial-gradient(1200px 900px at 50% 120%, rgba(0, 0, 0, 0.65), transparent 70%);
   mix-blend-mode: screen;
   opacity: 0.7;
+  display: none;
 }
 
 #root {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 header {
@@ -126,15 +128,24 @@ header .meta {
   gap: 18px;
   padding: 20px 24px 28px;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.shell.travel-layout {
+  grid-template-columns: 1fr;
 }
 
 .left-column {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-height: calc(100vh - 90px);
+  min-height: 0;
+  max-height: 100%;
   overflow-y: auto;
   padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(18, 24, 34, 0.85) transparent;
 }
 
 .panel {
@@ -143,7 +154,7 @@ header .meta {
   padding: 16px;
   box-shadow: var(--shadow);
   border: 1px solid var(--stroke);
-  backdrop-filter: blur(14px);
+  backdrop-filter: none;
 }
 
 .panel h2 {
@@ -560,6 +571,22 @@ header .meta {
   gap: 6px;
 }
 
+.build-filter-row {
+  align-items: center;
+  gap: 10px;
+}
+
+.build-filter-select {
+  margin-left: auto;
+  min-width: 180px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(12, 16, 24, 0.92);
+  color: var(--text);
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
 .growth-row {
   display: flex;
   justify-content: space-between;
@@ -578,6 +605,10 @@ header .meta {
   height: 100%;
   background: linear-gradient(120deg, #e3b261, #f0c27b);
   transition: width 0.8s ease;
+}
+
+.growth-bar.declining > div {
+  background: linear-gradient(120deg, #ff7d7d, #ef4444);
 }
 
 .jobs-list {
@@ -672,6 +703,10 @@ header .meta {
 
 .build-row.tint-storage {
   --tint-overlay: linear-gradient(90deg, rgba(122, 186, 224, 0.34) 0%, rgba(122, 186, 224, 0.12) 36%, rgba(122, 186, 224, 0) 68%);
+}
+
+.build-row.tint-logistics {
+  --tint-overlay: linear-gradient(90deg, rgba(196, 166, 98, 0.34) 0%, rgba(196, 166, 98, 0.12) 36%, rgba(196, 166, 98, 0) 68%);
 }
 
 .build-row.tint-warcamp {
@@ -809,6 +844,10 @@ header .meta {
   grid-template-columns: repeat(2, 1fr);
 }
 
+.grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .action {
   display: flex;
   flex-direction: column;
@@ -889,13 +928,154 @@ button:active:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  overflow: hidden;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(18, 24, 34, 0.85) transparent;
 }
 
 .center-section {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.travel-status {
+  display: grid;
+  gap: 8px;
+}
+
+.travel-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.travel-row.muted {
+  color: var(--muted);
+}
+
+.travel-progress {
+  margin-top: 2px;
+}
+
+.travel-overlay-screen {
+  position: relative;
+  min-height: calc(100vh - 170px);
+  padding: 0;
+  overflow: hidden;
+}
+
+.travel-overlay-left {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: min(20%, 330px);
+  max-height: calc(100% - 28px);
+  overflow-y: auto;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+}
+
+.travel-overlay-card {
+  background: rgba(10, 14, 20, 0.78);
+  backdrop-filter: blur(3px);
+}
+
+.travel-overlay-bottom {
+  position: absolute;
+  left: 24%;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2;
+  background: rgba(10, 14, 20, 0.78);
+  backdrop-filter: blur(3px);
+}
+
+.travel-map-stage {
+  position: relative;
+  height: 100%;
+  min-height: calc(100vh - 170px);
+  border-radius: inherit;
+  border: none;
+  overflow: hidden;
+}
+
+.travel-map {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.travel-map.dragging {
+  cursor: grabbing;
+}
+
+.travel-map-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 170%;
+  height: 170%;
+  background:
+    radial-gradient(circle at 12% 22%, rgba(227, 178, 97, 0.2) 0 40px, transparent 42px),
+    radial-gradient(circle at 64% 45%, rgba(124, 192, 255, 0.22) 0 42px, transparent 44px),
+    radial-gradient(circle at 85% 76%, rgba(247, 165, 90, 0.2) 0 38px, transparent 40px),
+    linear-gradient(160deg, rgba(14, 20, 30, 0.95), rgba(11, 16, 24, 0.95));
+  will-change: transform;
+}
+
+.travel-map-canvas::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  opacity: 0.5;
+}
+
+.map-node {
+  position: absolute;
+  z-index: 1;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(10, 14, 20, 0.78);
+}
+
+.map-node.home { left: 18%; top: 64%; border-color: rgba(227, 178, 97, 0.4); }
+.map-node.scout { left: 54%; top: 24%; border-color: rgba(124, 192, 255, 0.4); }
+.map-node.salvage { left: 82%; top: 52%; border-color: rgba(247, 165, 90, 0.4); }
+.map-node.embers { left: 122%; top: 74%; border-color: rgba(255, 120, 120, 0.4); }
+
+@media (max-width: 1180px) {
+  .travel-overlay-left {
+    position: static;
+    width: auto;
+    max-height: none;
+    padding: 14px 14px 0;
+    overflow: visible;
+  }
+
+  .travel-overlay-bottom {
+    position: static;
+    margin: 14px;
+  }
+
+  .travel-map-stage {
+    min-height: 420px;
+  }
 }
 
 .world-header .zone-title {
@@ -1158,6 +1338,25 @@ button:active:not(:disabled) {
   animation: brace 1.6s infinite ease-in-out;
 }
 
+.low-fx .combat-scene.active::after {
+  display: none;
+}
+
+.low-fx .combat-scene.active .fighter.ally,
+.low-fx .combat-scene.active .fighter.enemy {
+  animation: none;
+  transform: none;
+}
+
+.low-fx .combat-scene .fighter {
+  box-shadow: none;
+}
+
+.low-fx .combat-scene .fighter.ally.delay,
+.low-fx .combat-scene .fighter.ally.delay-2 {
+  display: none;
+}
+
 .combat-lane.active .fighter.ally {
   animation: charge 1.6s infinite ease-in-out;
 }
@@ -1338,11 +1537,31 @@ button:active:not(:disabled) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  cursor: help;
   font-size: 12px;
   padding: 8px 10px;
   border-radius: 8px;
   background: rgba(8, 12, 18, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.logistics-center-row.overcrowding.safe {
+  background: rgba(18, 58, 28, 0.55);
+  border-color: rgba(96, 201, 120, 0.5);
+  color: rgba(200, 255, 212, 0.95);
+}
+
+.logistics-center-row.overcrowding.warn {
+  background: rgba(74, 62, 20, 0.55);
+  border-color: rgba(214, 187, 88, 0.55);
+  color: rgba(255, 241, 196, 0.95);
+}
+
+.logistics-center-row.overcrowding.danger {
+  background: rgba(74, 18, 18, calc(0.45 + var(--danger-level, 0) * 0.4));
+  border-color: rgba(220, 84, 84, calc(0.45 + var(--danger-level, 0) * 0.4));
+  color: rgba(255, 210, 210, 0.98);
+  box-shadow: 0 0 calc(8px + var(--danger-level, 0) * 12px) rgba(170, 45, 45, 0.45);
 }
 
 .meta-effects {
@@ -1463,9 +1682,38 @@ button:active:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-height: calc(100vh - 90px);
+  min-height: 0;
+  max-height: 100%;
   overflow-y: auto;
   padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(18, 24, 34, 0.85) transparent;
+}
+
+.left-column::-webkit-scrollbar,
+.center-column::-webkit-scrollbar,
+.right-column::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.left-column::-webkit-scrollbar-track,
+.center-column::-webkit-scrollbar-track,
+.right-column::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.left-column::-webkit-scrollbar-thumb,
+.center-column::-webkit-scrollbar-thumb,
+.right-column::-webkit-scrollbar-thumb {
+  background: rgba(18, 24, 34, 0.85);
+  border-radius: 999px;
+}
+
+.left-column::-webkit-scrollbar-thumb:hover,
+.center-column::-webkit-scrollbar-thumb:hover,
+.right-column::-webkit-scrollbar-thumb:hover {
+  background: rgba(26, 34, 48, 0.9);
 }
 
 .rites-panel .panel-header {
