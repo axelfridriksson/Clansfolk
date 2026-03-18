@@ -38,6 +38,8 @@ export default function OverviewTab({
   craftRune,
   formatTime
 }) {
+  const encounterVisual = getEncounterVisual(state, army);
+
   return (
     <>
       <div className="center-column">
@@ -110,20 +112,56 @@ export default function OverviewTab({
           )}
           <div className={`combat-scene ${state.world.fighting ? 'active' : ''}`} style={{ backgroundImage: `url(${scene})` }}>
             <div className={`combat-scene-overlay ${state.world.fighting ? 'active' : ''}`} />
+            <div className="combat-scene-hud">
+              <div>
+                <div className="combat-scene-title">{encounterVisual.title}</div>
+                <div className="combat-scene-subtitle">{encounterVisual.subtitle}</div>
+              </div>
+              <div className={`combat-scene-threat ${encounterVisual.threatTone}`}>{encounterVisual.threatText}</div>
+            </div>
+            <div className="combat-ground combat-ground-back" />
+            <div className="combat-ground combat-ground-front" />
             <div className="combat-scene-actors">
-              <span className="fighter ally" />
-              <span className="fighter ally delay" />
-              <span className="fighter ally delay-2" />
-              <span className="fighter enemy" />
+              <div className="combat-rank allies">
+                {encounterVisual.allies.map((unit, index) => (
+                  <span
+                    key={`ally-${unit.role}-${index}`}
+                    className={`fighter ally ${unit.role} ${index > 0 ? `delay-${Math.min(index, 2)}` : ''}`}
+                    style={{ left: `${unit.offset}%` }}
+                  />
+                ))}
+              </div>
+              <div className="combat-rank enemies">
+                {encounterVisual.enemies.map((unit, index) => (
+                  <span
+                    key={`enemy-${unit.role}-${index}`}
+                    className={`fighter enemy ${unit.role} ${index > 0 ? `delay-${Math.min(index, 2)}` : ''}`}
+                    style={{ right: `${unit.offset}%` }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="combat-scene-footer">
+              <span>{encounterVisual.weather}</span>
+              <span>{encounterVisual.front}</span>
+              <span>{encounterVisual.stepText}</span>
             </div>
           </div>
           <div className="combat-row">
             <div className="combat-label">Enemy</div>
             <div className="combat-value">
-              {Math.round(state.world.enemyHP)} / {state.world.enemyHPMax} · ATK {state.world.enemyAtk.toFixed(1)}
+              <strong>{state.world.enemyName || 'Hostile'}</strong>
+              <span className="combat-inline-meta">{Math.round(state.world.enemyHP)} / {state.world.enemyHPMax} HP · ATK {state.world.enemyAtk.toFixed(1)}</span>
               <span className="enemy-count">Enemy {state.world.enemyIndex || 1} of {state.world.enemiesPerZone || 5}</span>
             </div>
           </div>
+          {!!state.world.enemyTraits?.length && (
+            <div className="combat-tags">
+              {state.world.enemyTraits.map(trait => (
+                <span key={trait} className="combat-tag">{trait}</span>
+              ))}
+            </div>
+          )}
           <div className="combat-row sub">
             <div className="combat-label">Incoming</div>
             <div className="combat-value">
@@ -364,4 +402,51 @@ export default function OverviewTab({
       </div>
     </>
   );
+}
+
+function getEncounterVisual(state, army) {
+  const zone = Math.max(1, state.world.zone || 1);
+  const enemyIndex = Math.max(1, state.world.enemyIndex || 1);
+  const enemiesPerZone = Math.max(1, state.world.enemiesPerZone || 1);
+  const threat = state.world.enemyAtk / Math.max(1, army.atk);
+  const themes = [
+    { title: 'Rime Raiders', subtitle: 'fast skirmish line', weather: 'Crosswind', front: 'Loose formation', roles: ['raider', 'raider', 'skirmish'] },
+    { title: 'Broken Shieldwall', subtitle: 'disciplined hold', weather: 'Cold rain', front: 'Shield pressure', roles: ['shield', 'shield', 'brute'] },
+    { title: 'Frostpack', subtitle: 'animal rush', weather: 'Frost drift', front: 'Beast surge', roles: ['beast', 'beast', 'raider'] },
+    { title: 'Ashbound Scouts', subtitle: 'embers and hooks', weather: 'Ash gusts', front: 'Harrier screen', roles: ['skirmish', 'raider', 'skirmish'] },
+    { title: 'Grave Guard', subtitle: 'slow crushing advance', weather: 'Still air', front: 'Heavy pressure', roles: ['brute', 'shield', 'shield'] }
+  ];
+  const theme = themes[(zone + enemyIndex - 1) % themes.length];
+  const allyCount = Math.max(2, Math.min(5, Math.ceil((state.clansfolk.army || 0) / 3)));
+  const enemyCount = Math.max(2, Math.min(4, 2 + ((zone + enemyIndex) % 3)));
+  const allyRoles = getAllyRoles(state.ui?.combatStance || 'balanced', allyCount);
+  const enemyRoles = Array.from({ length: enemyCount }, (_, index) => theme.roles[index % theme.roles.length]);
+
+  return {
+    title: theme.title,
+    subtitle: theme.subtitle,
+    weather: theme.weather,
+    front: theme.front,
+    stepText: `Encounter ${enemyIndex} / ${enemiesPerZone}`,
+    threatText: threat >= 1.1 ? 'High threat' : threat >= 0.75 ? 'Even clash' : 'Press advantage',
+    threatTone: threat >= 1.1 ? 'danger' : threat >= 0.75 ? 'warn' : 'good',
+    allies: buildFormation(allyRoles, 'ally'),
+    enemies: buildFormation(enemyRoles, 'enemy')
+  };
+}
+
+function getAllyRoles(stance, count) {
+  const roleSets = {
+    aggressive: ['raider', 'raider', 'brute', 'skirmish', 'skirmish'],
+    defensive: ['shield', 'shield', 'brute', 'raider', 'skirmish'],
+    balanced: ['shield', 'raider', 'brute', 'skirmish', 'raider']
+  };
+  return roleSets[stance].slice(0, count);
+}
+
+function buildFormation(roles, side) {
+  const offsets = side === 'ally'
+    ? [12, 20, 30, 40, 50]
+    : [12, 22, 34, 46, 58];
+  return roles.map((role, index) => ({ role, offset: offsets[index] || (12 + index * 10) }));
 }

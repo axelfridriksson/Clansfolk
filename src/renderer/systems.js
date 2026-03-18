@@ -85,16 +85,120 @@ export function getReligionBonuses(state) {
   };
 }
 
+const ENEMY_ARCHETYPES = [
+  {
+    id: 'raider',
+    names: ['Frost Raider', 'Rime Reaver', 'Coast Marauder'],
+    hpMult: 0.92,
+    atkMult: 1.08,
+    traits: ['fast', 'light armor']
+  },
+  {
+    id: 'shield',
+    names: ['Shield Bearer', 'Ice Wall', 'Hold Defender'],
+    hpMult: 1.18,
+    atkMult: 0.92,
+    traits: ['shielded', 'steady']
+  },
+  {
+    id: 'brute',
+    names: ['Ash Brute', 'Bone Mauler', 'Crag Crusher'],
+    hpMult: 1.32,
+    atkMult: 1.04,
+    traits: ['heavy', 'slow']
+  },
+  {
+    id: 'skirmish',
+    names: ['Wind Skirmisher', 'Hook Runner', 'Loose Knife'],
+    hpMult: 0.84,
+    atkMult: 1.18,
+    traits: ['harrier', 'fragile']
+  },
+  {
+    id: 'beast',
+    names: ['Frost Wolf', 'Ash Hound', 'Ridge Stalker'],
+    hpMult: 0.98,
+    atkMult: 1.12,
+    traits: ['beast', 'pouncing']
+  },
+  {
+    id: 'captain',
+    names: ['Fracture Captain', 'Ashbound Chief', 'Rime Warlord'],
+    hpMult: 1.45,
+    atkMult: 1.2,
+    traits: ['elite', 'commanding']
+  },
+  {
+    id: 'champion',
+    names: ['Frost Champion', 'Ash Champion', 'Rime Champion'],
+    hpMult: 1.8,
+    atkMult: 1.5,
+    traits: ['champion', 'formidable']
+  },
+  {
+    id: 'warlord',
+    names: ['Frost Warlord', 'Ash Warlord', 'Rime Warlord'],
+    hpMult: 2.5,
+    atkMult: 2,
+    traits: ['warlord', 'terrifying']
+  },
+  {
+    id: 'overlord',
+    names: ['Frost Overlord', 'Ash Overlord', 'Rime Overlord'],
+    hpMult: 4,
+    atkMult: 3.5,
+    traits: ['overlord', 'apex predator']
+  },
+  // Additional archetypes can be added here for future zones or special encounters
+  {
+    id: 'mistweaver',
+    names: ['Mistweaver', 'Shadowmend', 'Fogcaller'],
+    hpMult: 1.1,
+    atkMult: 0.9,
+    traits: ['support', 'healer']
+  },
+  {
+    id: 'frostborn',
+    names: ['Frostborn Berserker', 'Ashborn Berserker', 'Rimeborn Berserker'],
+    hpMult: 1.3,
+    atkMult: 1.3,
+    traits: ['berserker', 'frenzy']
+  },
+  {
+    id: 'stoneguard',
+    names: ['Stoneguard', 'Ash Sentinel', 'Rime Sentinel'],
+    hpMult: 1.5,
+    atkMult: 0.8,
+    traits: ['stone skin', 'defender']
+  }
+  // More enemy and larger boss like army archetypes can be added as the game expands, providing a wider variety of challenges and encounters for players as they progress through later zones or special events.
+  
+
+];
+
 /**
  * Get scaled enemy stats for a zone and index within the zone.
  * @param {number} zone
  * @param {number} [enemyIndex=1]
- * @returns {{hp:number, atk:number}}
+ * @param {number} [enemiesPerZone=5]
+ * @returns {{hp:number, atk:number, archetype:string, name:string, traits:string[]}}
  */
-export function nextEnemy(zone, enemyIndex = 1) {
-  const hp = Math.round(18 + zone * zone * 2.6 + enemyIndex * 2);
-  const atk = Math.round(1 + zone * 0.7 + enemyIndex * 0.2);
-  return { hp, atk };
+export function nextEnemy(zone, enemyIndex = 1, enemiesPerZone = 5) {
+  const isCaptain = enemyIndex >= enemiesPerZone;
+  const pool = isCaptain
+    ? ENEMY_ARCHETYPES.filter(entry => entry.id === 'captain')
+    : ENEMY_ARCHETYPES.filter(entry => entry.id !== 'captain');
+  const archetype = pool[(zone + enemyIndex - 1) % pool.length];
+  const baseHp = 18 + zone * zone * 2.6 + enemyIndex * 2;
+  const baseAtk = 1 + zone * 0.7 + enemyIndex * 0.2;
+  const name = archetype.names[(zone * 3 + enemyIndex) % archetype.names.length];
+  return {
+    hp: Math.round(baseHp * archetype.hpMult),
+    atk: Math.round(baseAtk * archetype.atkMult),
+    archetype: archetype.id,
+    name,
+    traits: archetype.traits
+  };
 }
 
 /**

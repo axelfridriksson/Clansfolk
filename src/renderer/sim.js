@@ -237,19 +237,25 @@ export function simulateTick(prev, dt = 1) {
       const enemiesPerZone = next.world.enemiesPerZone || 5;
       if (next.world.enemyIndex < enemiesPerZone) {
         next.world.enemyIndex += 1;
-        const enemy = nextEnemy(next.world.zone, next.world.enemyIndex);
+        const enemy = nextEnemy(next.world.zone, next.world.enemyIndex, enemiesPerZone);
         next.world.enemyHP = enemy.hp;
         next.world.enemyHPMax = enemy.hp;
         next.world.enemyAtk = enemy.atk;
+        next.world.enemyName = enemy.name;
+        next.world.enemyArchetype = enemy.archetype;
+        next.world.enemyTraits = enemy.traits;
       } else {
         next.log = [`Zone ${next.world.zone} cleared.`, ...next.log].slice(0, 40);
         next.world.zone += 1;
         next.world.enemyIndex = 1;
         next.world.enemiesPerZone = next.world.zone <= 10 ? 5 : 5 + Math.floor((next.world.zone - 10) / 5);
-        const enemy = nextEnemy(next.world.zone, next.world.enemyIndex);
+        const enemy = nextEnemy(next.world.zone, next.world.enemyIndex, next.world.enemiesPerZone);
         next.world.enemyHP = enemy.hp;
         next.world.enemyHPMax = enemy.hp;
         next.world.enemyAtk = enemy.atk;
+        next.world.enemyName = enemy.name;
+        next.world.enemyArchetype = enemy.archetype;
+        next.world.enemyTraits = enemy.traits;
       }
     }
 

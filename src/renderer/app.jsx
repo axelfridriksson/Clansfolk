@@ -4,7 +4,7 @@ import frozenBg from './assets/images/Frozen.png';
 import hellBg from './assets/images/hellvibes.png';
 import { BLACKSMITH_ITEMS, BUILDINGS, UPGRADES, PATRONS, RITES_BUILDINGS } from './data.js';
 import { SAVE_KEY, START_STATE } from './models.js';
-import { calcCaps, calcRates, getArmyStats, canAfford, applyCost, loadSave, mergeSave, totalJobs } from './systems.js';
+import { calcCaps, calcRates, getArmyStats, canAfford, applyCost, loadSave, mergeSave, nextEnemy, totalJobs } from './systems.js';
 import { simulateTick } from './sim.js';
 import AppHeader from './components/AppHeader.jsx';
 import LeftColumn from './components/LeftColumn.jsx';
@@ -841,7 +841,20 @@ export default function App() {
   function startFight() {
     setState(prev => {
       if (prev.clansfolk.army <= 0) return prev;
-      return { ...prev, world: { ...prev.world, fighting: true } };
+      const enemy = nextEnemy(prev.world.zone, prev.world.enemyIndex || 1, prev.world.enemiesPerZone || 5);
+      return {
+        ...prev,
+        world: {
+          ...prev.world,
+          fighting: true,
+          enemyHP: prev.world.enemyHP || enemy.hp,
+          enemyHPMax: prev.world.enemyHPMax || enemy.hp,
+          enemyAtk: prev.world.enemyAtk || enemy.atk,
+          enemyName: enemy.name,
+          enemyArchetype: enemy.archetype,
+          enemyTraits: enemy.traits
+        }
+      };
     });
   }
 
