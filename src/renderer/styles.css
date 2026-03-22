@@ -315,9 +315,129 @@ header .meta {
   gap: 8px;
 }
 
+.warband-doctrine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(11, 14, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.doctrine-title {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.doctrine-name {
+  margin-top: 3px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.doctrine-meta {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .warcamp-roster {
   display: grid;
   gap: 10px;
+}
+
+.roster-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.roster-summary-row strong {
+  color: var(--text);
+}
+
+.role-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.role-pill {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.role-pill.active {
+  color: var(--text);
+  border-color: rgba(227, 178, 97, 0.35);
+  background: rgba(227, 178, 97, 0.12);
+}
+
+.role-pill.locked {
+  opacity: 0.55;
+}
+
+.role-composition {
+  display: grid;
+  gap: 10px;
+}
+
+.role-composition-list {
+  display: grid;
+  gap: 8px;
+}
+
+.role-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(11, 14, 20, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.role-row.locked {
+  opacity: 0.7;
+}
+
+.role-row-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.role-row-meta,
+.role-row-note {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.role-row-note {
+  grid-column: 1 / -1;
+}
+
+.role-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.blacksmith-role-summary {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
 }
 
 .roster-grid {
@@ -348,12 +468,50 @@ header .meta {
 
 .roster-dot {
   position: absolute;
+  width: 12px;
+  height: 18px;
+  border-radius: 4px 4px 3px 3px;
+  background: linear-gradient(180deg, #9deab8, #5ca979);
+  box-shadow: 0 0 12px rgba(110, 231, 183, 0.28);
+  animation: roam var(--durx, 3s) linear infinite;
+  transform-origin: 50% 100%;
+}
+
+.roster-dot::before,
+.roster-dot::after {
+  content: "";
+  position: absolute;
+}
+
+.roster-dot::before {
+  top: -7px;
+  left: 2px;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  background: #6ee7b7;
-  box-shadow: 0 0 10px rgba(110, 231, 183, 0.5);
-  animation: roam var(--durx, 3s) linear infinite;
+  border-radius: 999px;
+  background: rgba(244, 234, 212, 0.95);
+}
+
+.roster-dot::after {
+  top: 5px;
+  right: -6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 0 6px 6px 0;
+  background: rgba(196, 167, 111, 0.82);
+}
+
+.roster-dot.shield {
+  width: 14px;
+}
+
+.roster-dot.shield::after {
+  width: 10px;
+  height: 12px;
+  top: 3px;
+  right: -7px;
+  border-radius: 2px 6px 6px 2px;
+  background: rgba(122, 141, 166, 0.88);
 }
 
 @keyframes roam {
@@ -1301,6 +1459,25 @@ button:active:not(:disabled) {
   margin: -4px 0 8px;
 }
 
+.combat-role-health {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.combat-role-health-row {
+  display: grid;
+  gap: 4px;
+}
+
+.combat-role-health-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .combat-tag {
   padding: 3px 8px;
   border-radius: 999px;
@@ -1328,6 +1505,44 @@ button:active:not(:disabled) {
 
 .forecast.danger {
   color: var(--danger);
+}
+
+.combat-scout {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(9, 13, 19, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.combat-scout-title {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.combat-scout-quality {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  color: #cbd4e2;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.combat-scout-list {
+  display: grid;
+  gap: 4px;
+}
+
+.combat-scout-line {
+  font-size: 12px;
+  color: var(--text);
 }
 
 .combat-times {
@@ -1360,6 +1575,75 @@ button:active:not(:disabled) {
 .combat-actions {
   display: flex;
   gap: 8px;
+}
+
+.combat-plan {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.combat-scout-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.combat-plan-desc {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.combat-plan-recommendation {
+  font-size: 12px;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.combat-resolution {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(17, 28, 20, 0.62);
+  border: 1px solid rgba(127, 231, 160, 0.14);
+}
+
+.combat-resolution.defeat {
+  background: rgba(34, 16, 18, 0.62);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.combat-resolution-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #9ceab9;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.combat-resolution-loot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.combat-resolution-losses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: #f3b2b2;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .combat-stance {
@@ -1806,6 +2090,14 @@ button:active:not(:disabled) {
 
 .bar.enemy > div {
   background: linear-gradient(120deg, #f97316, #ef4444);
+}
+
+.bar.role {
+  height: 8px;
+}
+
+.bar.role > div {
+  background: linear-gradient(120deg, #9dc2ff, #4f7cff);
 }
 
 .split {

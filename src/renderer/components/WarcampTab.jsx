@@ -1,10 +1,11 @@
 import React from 'react';
 import stillBg from '../assets/images/Still.png';
 import { BLACKSMITH_ITEMS } from '../data.js';
+import { getUnlockedWarbandRoles, ROLE_ORDER, WARBAND_ROLES } from '../combat/roles.js';
 import { canAfford } from '../systems.js';
 
 /**
- * Warcamp tab layout: roster/equipment center, blacksmith/command right.
+ * Warcamp tab layout: roster/equipment center, blacksmith right.
  */
 export default function WarcampTab({
   state,
@@ -12,6 +13,8 @@ export default function WarcampTab({
   equipSlots,
   equipmentTiers,
   blacksmithItems,
+  availableBlacksmithRoles,
+  selectedBlacksmithRole,
   availableBlacksmithTiers,
   selectedBlacksmithTier,
   blacksmithItemsByTier,
@@ -20,8 +23,23 @@ export default function WarcampTab({
   autoEquip,
   craftItem,
   onSetCraftStep,
-  onSetBlacksmithTier
+  onSetBlacksmithRole,
+  onSetBlacksmithTier,
+  setWarbandRole
 }) {
+  const meleeCount = state.warband?.roles?.melee || 0;
+  const meleeCoverage = meleeCount > 0
+    ? Math.round((Object.values(state.equipment).reduce((sum, count) => sum + count, 0) / (meleeCount * 3)) * 100)
+    : 0;
+  const unlockedRoles = getUnlockedWarbandRoles(state);
+  const roleCapacity = state.warband?.roles?.[selectedBlacksmithRole] || 0;
+  const roleSummary = ROLE_ORDER.map((id) => ({
+    id,
+    label: WARBAND_ROLES[id].label,
+    count: state.warband?.roles?.[id] || 0,
+    unlocked: unlockedRoles.includes(id)
+  }));
+
   return (
     <>
       <div className="center-column">
@@ -43,26 +61,35 @@ export default function WarcampTab({
           </div>
           <div className="warcamp-equipment">
             <div className="stat-label">Equip Warband</div>
+            <div className="warband-doctrine">
+              <div>
+                <div className="doctrine-title">Current Doctrine</div>
+                <div className="doctrine-name">Melee Line</div>
+              </div>
+              <div className="doctrine-meta">
+                <span>Frontline generalists</span>
+                <strong>{meleeCount} melee</strong>
+              </div>
+            </div>
             <div className="equipment-summary">
-              {['weapon', 'shield', 'armor'].map(slot => {
+              {equipSlots.map(({ id: slot, label }) => {
                 const equippedItems = Object.entries(state.equipment)
                   .filter(([id, count]) => {
                     const item = BLACKSMITH_ITEMS[id];
-                    return item && item.slot === slot && count > 0;
+                    return item && item.role === selectedBlacksmithRole && item.slot === slot && count > 0;
                   })
                   .map(([id, count]) => `${BLACKSMITH_ITEMS[id].name} x${count}`);
                 const equippedCount = Object.entries(state.equipment).reduce((sum, [id, count]) => {
                   const item = BLACKSMITH_ITEMS[id];
-                  if (!item || item.slot !== slot) return sum;
+                  if (!item || item.role !== selectedBlacksmithRole || item.slot !== slot) return sum;
                   return sum + count;
                 }, 0);
-                const capacity = Math.max(0, state.clansfolk.army || 0);
-                const fill = capacity > 0 ? Math.min(100, (equippedCount / capacity) * 100) : 0;
+                const fill = roleCapacity > 0 ? Math.min(100, (equippedCount / roleCapacity) * 100) : 0;
                 return (
                   <div key={slot} className="equipment-summary-row">
-                    <span className="summary-label">{slot.toUpperCase()}</span>
+                    <span className="summary-label">{label}</span>
                     <span className="summary-value">{equippedItems.length ? equippedItems.join(', ') : 'None'}</span>
-                    <span className="summary-count">{equippedCount}/{capacity}</span>
+                    <span className="summary-count">{equippedCount}/{roleCapacity}</span>
                     <button
                       className="ghost mini"
                       onClick={() => applyEquipSlot(slot, null)}
@@ -87,9 +114,10 @@ export default function WarcampTab({
                   const tierItems = tier.items
                     .map(id => {
                       const item = BLACKSMITH_ITEMS[id];
-                      return item ? { id, ...item } : null;
+                      return item && item.role === selectedBlacksmithRole ? { id, ...item } : null;
                     })
                     .filter(Boolean);
+                  if (tierItems.length === 0) return null;
                   return (
                     <div className="equipment-tier" key={tier.id}>
                       <div className="tier-label">
@@ -102,10 +130,10 @@ export default function WarcampTab({
                           const stored = state.inventory[item.id] || 0;
                           const equippedInSlot = Object.entries(state.equipment).reduce((sum, [equipId, count]) => {
                             const equipItem = BLACKSMITH_ITEMS[equipId];
-                            if (!equipItem || equipItem.slot !== item.slot) return sum;
+                            if (!equipItem || equipItem.role !== item.role || equipItem.slot !== item.slot) return sum;
                             return sum + count;
                           }, 0);
-                          const slotRemaining = Math.max(0, (state.clansfolk.army || 0) - equippedInSlot);
+                          const slotRemaining = Math.max(0, roleCapacity - equippedInSlot);
                           const itemStats = [];
                           if (item.atk) itemStats.push(`+${item.atk} ATK`);
                           if (item.hp) itemStats.push(`+${item.hp} HP`);
@@ -134,8 +162,55 @@ export default function WarcampTab({
           </div>
           <div className="warcamp-roster">
             <div className="stat-label">Warband Roster</div>
+            <div className="roster-summary-row">
+              <span>Role mix</span>
+              <strong>Melee x{meleeCount}</strong>
+              <span>Kit coverage {meleeCoverage}%</span>
+            </div>
+            <div className="role-pill-row">
+              {roleSummary.map((role) => (
+                <span key={role.id} className={`role-pill ${role.count > 0 ? 'active' : 'inactive'} ${role.unlocked ? '' : 'locked'}`}>
+                  {role.label} x{role.count}
+                </span>
+              ))}
+            </div>
+            <div className="role-composition">
+              <div className="stat-label">Composition</div>
+              <div className="role-composition-list">
+                {roleSummary.map((role) => {
+                  const lockedReason = role.unlocked ? null : `${role.label} unlocks later`;
+                  const editable = role.unlocked && role.id !== 'melee';
+                  return (
+                    <div key={`comp-${role.id}`} className={`role-row ${role.unlocked ? '' : 'locked'}`}>
+                      <div>
+                        <div className="role-row-title">{role.label}</div>
+                        <div className="role-row-meta">{WARBAND_ROLES[role.id].job}</div>
+                      </div>
+                      <div className="role-row-actions">
+                        <button
+                          className="ghost mini"
+                          onClick={() => setWarbandRole(role.id, -1)}
+                          disabled={!editable || role.count <= 0 || state.world.fighting}
+                        >
+                          −
+                        </button>
+                        <strong>{role.count}</strong>
+                        <button
+                          className="mini"
+                          onClick={() => setWarbandRole(role.id, 1)}
+                          disabled={!editable || state.world.fighting}
+                        >
+                          +
+                        </button>
+                      </div>
+                      <div className="role-row-note">{lockedReason || (role.id === 'melee' ? 'Current baseline warband role. Shift units out of melee when other roles unlock.' : 'Shift units from melee into this role.')}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             <div className="roster-grid roster-backdrop" style={{ backgroundImage: `url(${stillBg})` }}>
-              <div className="roster-dots">
+              <div className="roster-dots melee-field">
                 {Array.from({ length: state.clansfolk.army }).map((_, index) => {
                   const rand = (seed) => {
                     const value = (Math.sin(seed) * 10000) % 1;
@@ -151,7 +226,7 @@ export default function WarcampTab({
                   return (
                     <span
                       key={`dot-${index}`}
-                      className="roster-dot"
+                      className={`roster-dot melee ${index % 4 === 0 ? 'shield' : ''}`}
                       style={{
                         left: `${baseLeft}%`,
                         top: `${baseTop}px`,
@@ -188,6 +263,20 @@ export default function WarcampTab({
           <section className="panel section">
             <h2>Blacksmith</h2>
             <div className="assign-step">
+              <span>Role</span>
+              <div className="assign-buttons">
+                {availableBlacksmithRoles.map((roleId) => (
+                  <button
+                    key={roleId}
+                    className={`mini ${selectedBlacksmithRole === roleId ? 'selected' : ''}`}
+                    onClick={() => onSetBlacksmithRole(roleId)}
+                  >
+                    {WARBAND_ROLES[roleId].label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="assign-step">
               <span>Craft</span>
               <div className="assign-buttons">
                 {[1, 5, 10, 'max'].map(step => (
@@ -214,6 +303,10 @@ export default function WarcampTab({
                   </button>
                 ))}
               </div>
+            </div>
+            <div className="blacksmith-role-summary">
+              <div className="stat-label">{WARBAND_ROLES[selectedBlacksmithRole].label} Kit</div>
+              <div className="cost">{WARBAND_ROLES[selectedBlacksmithRole].job}</div>
             </div>
             <div className="buildings-list">
               {blacksmithItemsByTier.map(item => (
@@ -247,28 +340,6 @@ export default function WarcampTab({
             </div>
           </section>
         )}
-        <section className="panel section">
-          <h2>Command Center</h2>
-          <div className="command-card">
-            <div className="stat-label">Commander</div>
-            <div className="command-hero">
-              <div className="command-avatar" />
-              <div>
-                <div className="command-name">Runa Iceborn</div>
-                <div className="command-title">Warcamp Warden</div>
-                <div className="command-traits">
-                  <span>+6% Warband ATK</span>
-                  <span>+10% Rally Speed</span>
-                </div>
-              </div>
-            </div>
-            <div className="command-actions">
-              <button className="ghost mini" disabled>Choose Commander</button>
-              <button className="ghost mini" disabled>Archive Commander</button>
-            </div>
-            <div className="placeholder-subtitle">Future: unique stats, traits, and persistent legends.</div>
-          </div>
-        </section>
       </div>
     </>
   );

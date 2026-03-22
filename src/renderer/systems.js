@@ -6,6 +6,8 @@
  * @returns {number}
  */
 import { BLACKSMITH_ITEMS, PATRONS, RITES_BUILDINGS } from './data.js';
+import { getEnemyArchetypePool } from './combat/enemies.js';
+import { createEmptyWarbandHealth, createEmptyWarbandRoles, ROLE_ORDER } from './combat/roles.js';
 
 export function clamp(num, min, max) {
   return Math.max(min, Math.min(max, num));
@@ -44,6 +46,13 @@ export function mergeSave(base, saved) {
     upgrades: { ...base.upgrades, ...saved.upgrades },
     inventory: { ...base.inventory, ...saved.inventory },
     equipment: { ...base.equipment, ...saved.equipment },
+    warband: {
+      ...base.warband,
+      ...saved.warband,
+      roles: { ...base.warband?.roles, ...saved.warband?.roles },
+      health: { ...base.warband?.health, ...saved.warband?.health }
+    },
+    command: { ...base.command, ...saved.command },
     unlocks: { ...base.unlocks, ...saved.unlocks },
     runes: { ...base.runes, ...saved.runes },
     religion: { ...base.religion, ...saved.religion, buildings: { ...base.religion?.buildings, ...saved.religion?.buildings } },
@@ -55,6 +64,44 @@ export function mergeSave(base, saved) {
     ui: { ...base.ui, ...saved.ui },
     log: saved.log?.slice(-40) || base.log
   };
+}
+
+/**
+ * Normalize warband role counts to the current deployed army size.
+ * For now all deployed units collapse into melee until other roles unlock.
+ * @param {number} armySize
+ * @param {Record<string, number>} [roles]
+ * @returns {{melee:number, bowmen:number, horsemen:number, spearmen:number, heavy:number}}
+ */
+export function normalizeWarbandRoles(armySize, roles = {}) {
+  const total = Math.max(0, Math.floor(armySize || 0));
+  const normalized = createEmptyWarbandRoles();
+  ROLE_ORDER.forEach((id) => {
+    normalized[id] = Math.max(0, Math.floor(roles[id] || 0));
+  });
+  const allocated = Object.values(normalized).reduce((sum, count) => sum + count, 0);
+  if (allocated !== total) {
+    normalized.melee = total;
+    normalized.bowmen = 0;
+    normalized.horsemen = 0;
+    normalized.spearmen = 0;
+    normalized.heavy = 0;
+  }
+  return normalized;
+}
+
+export function reconcileWarbandHealth(existingHealth = {}, roleStats = {}, resetToFull = false) {
+  const next = createEmptyWarbandHealth();
+  ROLE_ORDER.forEach((roleId) => {
+    const hpMax = Math.max(0, roleStats[roleId]?.hpMax || 0);
+    const prev = existingHealth?.[roleId];
+    const ratio = !resetToFull && prev && prev.hpMax > 0 ? prev.hp / prev.hpMax : 1;
+    next[roleId] = {
+      hpMax,
+      hp: hpMax <= 0 ? 0 : Math.min(hpMax, Math.max(0, hpMax * ratio))
+    };
+  });
+  return next;
 }
 
 /**
@@ -85,120 +132,50 @@ export function getReligionBonuses(state) {
   };
 }
 
-const ENEMY_ARCHETYPES = [
-  {
-    id: 'raider',
-    names: ['Frost Raider', 'Rime Reaver', 'Coast Marauder'],
-    hpMult: 0.92,
-    atkMult: 1.08,
-    traits: ['fast', 'light armor']
-  },
-  {
-    id: 'shield',
-    names: ['Shield Bearer', 'Ice Wall', 'Hold Defender'],
-    hpMult: 1.18,
-    atkMult: 0.92,
-    traits: ['shielded', 'steady']
-  },
-  {
-    id: 'brute',
-    names: ['Ash Brute', 'Bone Mauler', 'Crag Crusher'],
-    hpMult: 1.32,
-    atkMult: 1.04,
-    traits: ['heavy', 'slow']
-  },
-  {
-    id: 'skirmish',
-    names: ['Wind Skirmisher', 'Hook Runner', 'Loose Knife'],
-    hpMult: 0.84,
-    atkMult: 1.18,
-    traits: ['harrier', 'fragile']
-  },
-  {
-    id: 'beast',
-    names: ['Frost Wolf', 'Ash Hound', 'Ridge Stalker'],
-    hpMult: 0.98,
-    atkMult: 1.12,
-    traits: ['beast', 'pouncing']
-  },
-  {
-    id: 'captain',
-    names: ['Fracture Captain', 'Ashbound Chief', 'Rime Warlord'],
-    hpMult: 1.45,
-    atkMult: 1.2,
-    traits: ['elite', 'commanding']
-  },
-  {
-    id: 'champion',
-    names: ['Frost Champion', 'Ash Champion', 'Rime Champion'],
-    hpMult: 1.8,
-    atkMult: 1.5,
-    traits: ['champion', 'formidable']
-  },
-  {
-    id: 'warlord',
-    names: ['Frost Warlord', 'Ash Warlord', 'Rime Warlord'],
-    hpMult: 2.5,
-    atkMult: 2,
-    traits: ['warlord', 'terrifying']
-  },
-  {
-    id: 'overlord',
-    names: ['Frost Overlord', 'Ash Overlord', 'Rime Overlord'],
-    hpMult: 4,
-    atkMult: 3.5,
-    traits: ['overlord', 'apex predator']
-  },
-  // Additional archetypes can be added here for future zones or special encounters
-  {
-    id: 'mistweaver',
-    names: ['Mistweaver', 'Shadowmend', 'Fogcaller'],
-    hpMult: 1.1,
-    atkMult: 0.9,
-    traits: ['support', 'healer']
-  },
-  {
-    id: 'frostborn',
-    names: ['Frostborn Berserker', 'Ashborn Berserker', 'Rimeborn Berserker'],
-    hpMult: 1.3,
-    atkMult: 1.3,
-    traits: ['berserker', 'frenzy']
-  },
-  {
-    id: 'stoneguard',
-    names: ['Stoneguard', 'Ash Sentinel', 'Rime Sentinel'],
-    hpMult: 1.5,
-    atkMult: 0.8,
-    traits: ['stone skin', 'defender']
-  }
-  // More enemy and larger boss like army archetypes can be added as the game expands, providing a wider variety of challenges and encounters for players as they progress through later zones or special events.
-  
 
-];
 
 /**
  * Get scaled enemy stats for a zone and index within the zone.
  * @param {number} zone
  * @param {number} [enemyIndex=1]
  * @param {number} [enemiesPerZone=5]
- * @returns {{hp:number, atk:number, archetype:string, name:string, traits:string[]}}
+ * @returns {{hp:number, atk:number, archetype:string, name:string, traits:string[], count:number, forceLabel:string}}
  */
 export function nextEnemy(zone, enemyIndex = 1, enemiesPerZone = 5) {
   const isCaptain = enemyIndex >= enemiesPerZone;
-  const pool = isCaptain
-    ? ENEMY_ARCHETYPES.filter(entry => entry.id === 'captain')
-    : ENEMY_ARCHETYPES.filter(entry => entry.id !== 'captain');
+  const pool = getEnemyArchetypePool(isCaptain);
   const archetype = pool[(zone + enemyIndex - 1) % pool.length];
   const baseHp = 18 + zone * zone * 2.6 + enemyIndex * 2;
   const baseAtk = 1 + zone * 0.7 + enemyIndex * 0.2;
   const name = archetype.names[(zone * 3 + enemyIndex) % archetype.names.length];
+  const count = getEncounterCount(archetype.id, zone, enemyIndex, enemiesPerZone);
   return {
-    hp: Math.round(baseHp * archetype.hpMult),
-    atk: Math.round(baseAtk * archetype.atkMult),
+    hp: Math.round(baseHp * archetype.hpMult * Math.max(1, 0.8 + count * 0.18)),
+    atk: Math.round(baseAtk * archetype.atkMult * Math.max(1, 0.75 + count * 0.07)),
     archetype: archetype.id,
     name,
-    traits: archetype.traits
+    traits: archetype.traits,
+    count,
+    forceLabel: getForceLabel(archetype.id, count, isCaptain)
   };
+}
+
+function getEncounterCount(archetypeId, zone, enemyIndex, enemiesPerZone) {
+  if (enemyIndex >= enemiesPerZone) return 1;
+  if (archetypeId === 'brute') return 1 + ((zone + enemyIndex) % 2);
+  if (archetypeId === 'shield') return 3 + ((zone + enemyIndex) % 3);
+  if (archetypeId === 'skirmish') return 4 + ((zone + enemyIndex) % 3);
+  if (archetypeId === 'beast') return 2 + ((zone + enemyIndex) % 3);
+  return 3 + ((zone + enemyIndex) % 4);
+}
+
+function getForceLabel(archetypeId, count, isCaptain) {
+  if (isCaptain) return 'command group';
+  if (archetypeId === 'shield') return count >= 5 ? 'shield knot' : 'shield patrol';
+  if (archetypeId === 'skirmish') return count >= 5 ? 'harrier pack' : 'scout knot';
+  if (archetypeId === 'beast') return count >= 4 ? 'beast pack' : 'beast pair';
+  if (archetypeId === 'brute') return count > 1 ? 'breaker pair' : 'breaker';
+  return count >= 5 ? 'raiding band' : 'raider knot';
 }
 
 /**
@@ -268,47 +245,99 @@ export function calcRates(state) {
 }
 
 /**
- * Compute warband attack and health based on army size and upgrades.
+ * Compute warband attack and health based on army size, roles, and upgrades.
  * @param {object} state
- * @returns {{atk:number, hp:number}}
+ * @returns {{atk:number, hp:number, roles: Record<string, number>, matchup:number}}
  */
 export function getArmyStats(state) {
   const religion = getReligionBonuses(state);
   const stance = state.ui?.combatStance || 'balanced';
   const stanceAtk = stance === 'aggressive' ? 1.25 : stance === 'defensive' ? 0.85 : 1;
   const runeAtk = 1 + (state.runes?.frost || 0) * 0.01;
-  const baseAtk = state.clansfolk.army * 2.2;
-  const baseHp = state.clansfolk.army * 8;
+  const roles = normalizeWarbandRoles(state.clansfolk.army, state.warband?.roles);
+  const roleStats = {
+    melee: { count: roles.melee, atk: roles.melee * 2.2, hpMax: roles.melee * 8 },
+    bowmen: { count: roles.bowmen, atk: roles.bowmen * 1.8, hpMax: roles.bowmen * 5.5 },
+    horsemen: { count: roles.horsemen, atk: roles.horsemen * 2.6, hpMax: roles.horsemen * 7 },
+    spearmen: { count: roles.spearmen, atk: roles.spearmen * 2.3, hpMax: roles.spearmen * 8.5 },
+    heavy: { count: roles.heavy, atk: roles.heavy * 2.8, hpMax: roles.heavy * 11 }
+  };
   let equipAtk = 0;
   let equipHp = 0;
-  const slots = ['weapon', 'shield', 'armor'];
-  slots.forEach(slot => {
-    let remaining = state.clansfolk.army;
-    Object.entries(state.equipment || {})
-      .filter(([id, count]) => {
-        const item = BLACKSMITH_ITEMS[id];
-        return item && item.slot === slot && count > 0;
-      })
-      .sort((a, b) => {
-        const itemA = BLACKSMITH_ITEMS[a[0]];
-        const itemB = BLACKSMITH_ITEMS[b[0]];
-        const scoreA = (itemA.atk || 0) + (itemA.hp || 0);
-        const scoreB = (itemB.atk || 0) + (itemB.hp || 0);
-        return scoreB - scoreA;
-      })
-      .forEach(([id, count]) => {
-        if (remaining <= 0) return;
-        const item = BLACKSMITH_ITEMS[id];
-        const applied = Math.min(remaining, count);
-        equipAtk += (item.atk || 0) * applied;
-        equipHp += (item.hp || 0) * applied;
-        remaining -= applied;
-      });
-  });
-  return {
-    atk: Math.max(0, (baseAtk + state.jobs.drillmaster * 0.8 + equipAtk) * state.perks.atkMult * stanceAtk * runeAtk * (1 + religion.atkMult)),
-    hp: Math.max(0, (baseHp + state.jobs.drillmaster * 1.5 + equipHp) * (1 + religion.hpMult))
+  const roleSlots = {
+    melee: ['weapon', 'shield', 'armor'],
+    bowmen: ['ranged', 'light'],
+    horsemen: ['mount', 'weapon', 'armor'],
+    spearmen: ['weapon', 'shield', 'armor'],
+    heavy: ['weapon', 'shield', 'armor']
   };
+  Object.entries(roleSlots).forEach(([roleId, slots]) => {
+    let remainingBySlot = Math.max(0, roles[roleId] || 0);
+    slots.forEach((slot) => {
+      let remaining = remainingBySlot;
+      Object.entries(state.equipment || {})
+        .filter(([id, count]) => {
+          const item = BLACKSMITH_ITEMS[id];
+          return item && item.role === roleId && item.slot === slot && count > 0;
+        })
+        .sort((a, b) => {
+          const itemA = BLACKSMITH_ITEMS[a[0]];
+          const itemB = BLACKSMITH_ITEMS[b[0]];
+          const scoreA = (itemA.atk || 0) + (itemA.hp || 0);
+          const scoreB = (itemB.atk || 0) + (itemB.hp || 0);
+          return scoreB - scoreA;
+        })
+        .forEach(([id, count]) => {
+          if (remaining <= 0) return;
+          const item = BLACKSMITH_ITEMS[id];
+          const applied = Math.min(remaining, count);
+          equipAtk += (item.atk || 0) * applied;
+          equipHp += (item.hp || 0) * applied;
+          roleStats[roleId].atk += (item.atk || 0) * applied;
+          roleStats[roleId].hpMax += (item.hp || 0) * applied;
+          remaining -= applied;
+        });
+    });
+  });
+  const matchup = getRoleMatchupModifier(roles, state.world?.enemyArchetype);
+  const currentHealth = state.warband?.health || {};
+  const scaledRoleStats = Object.fromEntries(Object.entries(roleStats).map(([roleId, role]) => {
+    const currentHp = currentHealth?.[roleId]?.hp;
+    const hpRatio = role.hpMax > 0 && Number.isFinite(currentHp)
+      ? clamp(currentHp / role.hpMax, 0, 1)
+      : 1;
+    const hpPerUnit = role.count > 0 ? role.hpMax / role.count : 0;
+    const currentCount = role.count <= 0
+      ? 0
+      : Math.max(0, Math.min(role.count, Math.ceil((Math.max(0, currentHp ?? role.hpMax)) / Math.max(1e-6, hpPerUnit))));
+    return [
+      roleId,
+      {
+        count: role.count,
+        currentCount,
+        atk: Math.max(0, role.atk * hpRatio * state.perks.atkMult * stanceAtk * runeAtk * (1 + religion.atkMult) * matchup),
+        hpMax: Math.max(0, role.hpMax * (1 + religion.hpMult))
+      }
+    ];
+  }));
+  const totalAtk = Object.values(scaledRoleStats).reduce((sum, role) => sum + role.atk, 0);
+  const totalHp = Object.values(roleStats).reduce((sum, role) => sum + role.hpMax, 0);
+  return {
+    atk: Math.max(0, totalAtk + state.jobs.drillmaster * 0.8 * state.perks.atkMult * stanceAtk * runeAtk * (1 + religion.atkMult) * matchup),
+    hp: Math.max(0, (totalHp + state.jobs.drillmaster * 1.5) * (1 + religion.hpMult)),
+    roles,
+    roleStats: scaledRoleStats,
+    matchup
+  };
+}
+
+function getRoleMatchupModifier(roles, enemyArchetype = 'raider') {
+  const total = Math.max(1, Object.values(roles || {}).reduce((sum, count) => sum + count, 0));
+  const bowShare = (roles?.bowmen || 0) / total;
+  if (bowShare <= 0) return 1;
+  if (enemyArchetype === 'skirmish' || enemyArchetype === 'beast') return 1 + bowShare * 0.35;
+  if (enemyArchetype === 'shield' || enemyArchetype === 'brute' || enemyArchetype === 'captain') return Math.max(0.85, 1 - bowShare * 0.2);
+  return 1 + bowShare * 0.08;
 }
 
 /**

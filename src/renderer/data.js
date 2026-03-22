@@ -188,22 +188,28 @@ export const UPGRADES = {
 
 export const BLACKSMITH_ITEMS = {
   // early game gear:
-  woodsword: { name: 'Wood Sword', cost: { wood: 40 }, slot: 'weapon', atk: 2, unlock: null },
-  woodshield: { name: 'Wood Shield', cost: { wood: 40 }, slot: 'shield', hp: 2, unlock: null },
-  woolarmor: { name: 'Wool Armor', cost: { food: 50 }, slot: 'armor', hp: 4, unlock: null },
-  reinforcedsword: { name: 'Reinforced Sword', cost: { wood: 90, stone: 40, knowledge: 8 }, slot: 'weapon', atk: 4, unlock: 'weaponTier2' },
-  reinforcedshield: { name: 'Reinforced Shield', cost: { wood: 80, stone: 50, knowledge: 8 }, slot: 'shield', hp: 5, unlock: 'weaponTier2' },
-  paddedarmor: { name: 'Padded Armor', cost: { food: 100, wood: 70, knowledge: 10 }, slot: 'armor', hp: 8, unlock: 'weaponTier2' },
-  ironsword: { name: 'Iron Sword', cost: { metal: 100, wood: 60, knowledge: 15 }, slot: 'weapon', atk: 7, unlock: 'weaponTier3' },
-  ironshield: { name: 'Iron Shield', cost: { metal: 110, wood: 50, knowledge: 15 }, slot: 'shield', hp: 9, unlock: 'weaponTier3' },
+  woodsword: { name: 'Wood Sword', role: 'melee', tierGroup: 'wood', cost: { wood: 40 }, slot: 'weapon', atk: 2, unlock: null },
+  woodshield: { name: 'Wood Shield', role: 'melee', tierGroup: 'wood', cost: { wood: 40 }, slot: 'shield', hp: 2, unlock: null },
+  woolarmor: { name: 'Wool Armor', role: 'melee', tierGroup: 'wood', cost: { food: 50 }, slot: 'armor', hp: 4, unlock: null },
+  shortbow: { name: 'Shortbow', role: 'bowmen', tierGroup: 'wood', cost: { wood: 55, food: 20 }, slot: 'ranged', atk: 2, unlock: 'weaponTier2' },
+  hoodedcoat: { name: 'Hooded Coat', role: 'bowmen', tierGroup: 'wood', cost: { food: 60, wood: 30 }, slot: 'light', hp: 3, unlock: 'weaponTier2' },
+  reinforcedsword: { name: 'Reinforced Sword', role: 'melee', tierGroup: 'reinforced', cost: { wood: 90, stone: 40, knowledge: 8 }, slot: 'weapon', atk: 4, unlock: 'weaponTier2' },
+  reinforcedshield: { name: 'Reinforced Shield', role: 'melee', tierGroup: 'reinforced', cost: { wood: 80, stone: 50, knowledge: 8 }, slot: 'shield', hp: 5, unlock: 'weaponTier2' },
+  paddedarmor: { name: 'Padded Armor', role: 'melee', tierGroup: 'reinforced', cost: { food: 100, wood: 70, knowledge: 10 }, slot: 'armor', hp: 8, unlock: 'weaponTier2' },
+  huntingbow: { name: 'Hunting Bow', role: 'bowmen', tierGroup: 'reinforced', cost: { wood: 110, stone: 30, knowledge: 8 }, slot: 'ranged', atk: 4, unlock: 'weaponTier2' },
+  leatherjerkin: { name: 'Leather Jerkin', role: 'bowmen', tierGroup: 'reinforced', cost: { food: 100, wood: 50, knowledge: 10 }, slot: 'light', hp: 6, unlock: 'weaponTier2' },
+  ironsword: { name: 'Iron Sword', role: 'melee', tierGroup: 'iron', cost: { metal: 100, wood: 60, knowledge: 15 }, slot: 'weapon', atk: 7, unlock: 'weaponTier3' },
+  ironshield: { name: 'Iron Shield', role: 'melee', tierGroup: 'iron', cost: { metal: 110, wood: 50, knowledge: 15 }, slot: 'shield', hp: 9, unlock: 'weaponTier3' },
   // mid game armor:
-  chainarmor: { name: 'Chain Armor', cost: { metal: 120, food: 80, knowledge: 18 }, slot: 'armor', hp: 14, unlock: 'weaponTier3' },
-  steelsword: { name: 'Steel Sword', cost: { metal: 200, wood: 100, knowledge: 30 }, slot: 'weapon', atk: 12, unlock: 'weaponTier4' },
-  steelshield: { name: 'Steel Shield', cost: { metal: 220, wood: 80, knowledge: 30 }, slot: 'shield', hp: 15, unlock: 'weaponTier4' },
-  platedarmor: { name: 'Plated Armor', cost: { metal: 250, food: 150, knowledge: 40 }, slot: 'armor', hp: 22, unlock: 'weaponTier4' },
-  mythrilsword: { name: 'Mythril Sword', cost: { metal: 400, wood: 150, knowledge: 50 }, slot: 'weapon', atk: 20, unlock: 'weaponTier5' },
-  mythrilshield: { name: 'Mythril Shield', cost: { metal: 450, wood: 120, knowledge: 50 }, slot: 'shield', hp: 25, unlock: 'weaponTier5' },
-  mythrilarmor: { name: 'Mythril Armor', cost: { metal: 500, food: 200, knowledge: 70 }, slot: 'armor', hp: 35, unlock: 'weaponTier5' },
+  chainarmor: { name: 'Chain Armor', role: 'melee', tierGroup: 'iron', cost: { metal: 120, food: 80, knowledge: 18 }, slot: 'armor', hp: 14, unlock: 'weaponTier3' },
+  hornbow: { name: 'Horn Bow', role: 'bowmen', tierGroup: 'iron', cost: { metal: 90, wood: 90, knowledge: 16 }, slot: 'ranged', atk: 7, unlock: 'weaponTier3' },
+  rangercoat: { name: 'Ranger Coat', role: 'bowmen', tierGroup: 'iron', cost: { metal: 80, food: 90, knowledge: 18 }, slot: 'light', hp: 10, unlock: 'weaponTier3' },
+  steelsword: { name: 'Steel Sword', role: 'melee', tierGroup: 'steel', cost: { metal: 200, wood: 100, knowledge: 30 }, slot: 'weapon', atk: 12, unlock: 'weaponTier4' },
+  steelshield: { name: 'Steel Shield', role: 'melee', tierGroup: 'steel', cost: { metal: 220, wood: 80, knowledge: 30 }, slot: 'shield', hp: 15, unlock: 'weaponTier4' },
+  platedarmor: { name: 'Plated Armor', role: 'melee', tierGroup: 'steel', cost: { metal: 250, food: 150, knowledge: 40 }, slot: 'armor', hp: 22, unlock: 'weaponTier4' },
+  mythrilsword: { name: 'Mythril Sword', role: 'melee', tierGroup: 'mythril', cost: { metal: 400, wood: 150, knowledge: 50 }, slot: 'weapon', atk: 20, unlock: 'weaponTier5' },
+  mythrilshield: { name: 'Mythril Shield', role: 'melee', tierGroup: 'mythril', cost: { metal: 450, wood: 120, knowledge: 50 }, slot: 'shield', hp: 25, unlock: 'weaponTier5' },
+  mythrilarmor: { name: 'Mythril Armor', role: 'melee', tierGroup: 'mythril', cost: { metal: 500, food: 200, knowledge: 70 }, slot: 'armor', hp: 35, unlock: 'weaponTier5' },
 
   // Future gear ideas:
   // - "Adamant Sword/Shield/Armor": high-tier gear unlocked by Armory Craft V, with strong stats and high costs.

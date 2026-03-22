@@ -1,3 +1,6 @@
+import { createEmptyWarbandHealth, createEmptyWarbandRoles } from './combat/roles.js';
+import { createStarterCommandState } from './commanders/data.js';
+
 export const SAVE_KEY = 'trimpsclone.save.v1';
 
 export const START_STATE = {
@@ -5,7 +8,7 @@ export const START_STATE = {
   resources: { food: 0, wood: 0, stone: 0, metal: 0, ash: 0, knowledge: 0 },
   clansfolk: { total: 3, idle: 3, army: 0, maxArmy: 5, growthProgress: 0, starvationProgress: 0, armyHP: 0, armyHPMax: 0 },
   jobs: { forager: 0, woodcutter: 0, quarry: 0, smelter: 0, lorekeeper: 0, ashwalker: 0, drillmaster: 0 },
-  buildings: { grasshut: 0, timberhall: 0, longhouse: 0, stonekeep: 0, storehouse: 0, smokehouse: 0, woodcuttershed: 0, granaryhall: 0, timberyard: 0, masonryard: 0, smeltery: 0, warcamp: 0, skaldhall: 0, ashaltar: 0 },
+  buildings: { grasshut: 0, timberhall: 0, longhouse: 0, stonekeep: 0, storehouse: 0, smokehouse: 0, woodcuttershed: 0, granaryhall: 0, timberyard: 0, masonryard: 0, smeltery: 0, warcamp: 0, commander: 0, skaldhall: 0, ashaltar: 0 },
   upgrades: {
     nets: 0,
     steelhooks: 0,
@@ -43,11 +46,17 @@ export const START_STATE = {
     enemyName: 'Frost Raider',
     enemyArchetype: 'raider',
     enemyTraits: ['fast', 'light armor'],
+    enemyCount: 3,
+    enemyForceLabel: 'raider knot',
     fighting: false,
+    combatState: 'idle',
     enemiesPerZone: 5,
     enemyIndex: 1,
+    combatStartCounts: null,
     lastEnemyHit: 0,
     lastWarbandHit: 0,
+    lastVictory: null,
+    lastDefeat: null,
     logisticsPressure: 0,
     overcrowdingRatio: 0,
     overcrowdingGrowthPenalty: 0,
@@ -59,10 +68,24 @@ export const START_STATE = {
       timeLeft: 0,
       duration: 0,
       party: 0
+    },
+    scouting: {
+      active: false,
+      timeLeft: 0,
+      duration: 0,
+      party: 0,
+      casualties: 0,
+      report: [],
+      quality: null
     }
   },
   perks: { remnants: 0, prodMult: 1, atkMult: 1 },
   runes: { ember: 0, frost: 0 },
+  warband: {
+    roles: createEmptyWarbandRoles(),
+    health: createEmptyWarbandHealth()
+  },
+  command: createStarterCommandState(),
   religion: {
     patron: null,
     buildings: { ashshrine: 0, embercairn: 0, hymnhall: 0 },
@@ -106,7 +129,11 @@ export const START_STATE = {
     lorekeepers: false,
     blacksmith: false,
     weaponTier2: false,
-    weaponTier3: false
+    weaponTier3: false,
+    roleBowmen: false,
+    roleHorsemen: false,
+    roleSpearmen: false,
+    roleHeavy: false
   },
   stats: { totalKills: 0 },
   inventory: {
@@ -145,5 +172,5 @@ export const START_STATE = {
     showAll: false
   },
   log: ['The long voyage ends. Three clansfolk step onto a cold shore.'],
-  ui: { tab: 'overview', leaderTask: null, warbandSend: 1, craftStep: 1, combatStance: 'balanced', selectedPatron: null, expeditionSend: 1, blacksmithTier: 'wood' }
+  ui: { tab: 'overview', leaderTask: null, warbandSend: 1, scoutSend: 1, craftStep: 1, combatStance: 'balanced', battlePlan: 'hold', selectedPatron: null, expeditionSend: 1, blacksmithTier: 'wood', blacksmithRole: 'melee' }
 };

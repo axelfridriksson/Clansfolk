@@ -1,5 +1,6 @@
 import React from 'react';
 import { PATRONS } from '../data.js';
+import { ROLE_ORDER, WARBAND_ROLES } from '../combat/roles.js';
 
 /**
  * Overview tab layout: world state center and interpretation/meta right column.
@@ -19,6 +20,8 @@ export default function OverviewTab({
   army,
   forecast,
   combatTimes,
+  scoutReport,
+  recommendedBattlePlan,
   cycleName,
   cycleTime,
   modifiers,
@@ -30,15 +33,24 @@ export default function OverviewTab({
   showTooltip,
   hideTooltip,
   setWarbandSend,
+  scoutSend,
+  setScoutSend,
   startFight,
+  advanceFight,
   stopFight,
   scout,
   setCombatStance,
+  setBattlePlan,
   prestige,
   craftRune,
   formatTime
 }) {
   const encounterVisual = getEncounterVisual(state, army);
+  const battlePlans = [
+    { id: 'hold', label: 'Hold Line', desc: 'Trade speed for staying power.' },
+    { id: 'press', label: 'Press Forward', desc: 'Push harder and take more losses.' },
+    { id: 'volley', label: 'Volley First', desc: 'Lean on bowmen for the opening clash.' }
+  ];
 
   return (
     <>
@@ -148,15 +160,16 @@ export default function OverviewTab({
             </div>
           </div>
           <div className="combat-row">
-            <div className="combat-label">Enemy</div>
+            <div className="combat-label">Enemy Group</div>
             <div className="combat-value">
-              <strong>{state.world.enemyName || 'Hostile'}</strong>
+              <strong>{state.world.enemyForceLabel || 'hostile group'}</strong>
               <span className="combat-inline-meta">{Math.round(state.world.enemyHP)} / {state.world.enemyHPMax} HP · ATK {state.world.enemyAtk.toFixed(1)}</span>
               <span className="enemy-count">Enemy {state.world.enemyIndex || 1} of {state.world.enemiesPerZone || 5}</span>
             </div>
           </div>
           {!!state.world.enemyTraits?.length && (
             <div className="combat-tags">
+              <span className="combat-tag">{state.world.enemyName || 'Hostile'} x{state.world.enemyCount || 1}</span>
               {state.world.enemyTraits.map(trait => (
                 <span key={trait} className="combat-tag">{trait}</span>
               ))}
@@ -187,6 +200,16 @@ export default function OverviewTab({
             <div className="combat-label">Warband</div>
             <div className="combat-value">{state.clansfolk.armyHP.toFixed(1)} / {state.clansfolk.armyHPMax.toFixed(1)} HP · {army.atk.toFixed(1)} ATK</div>
           </div>
+          <div className="combat-tags">
+            {ROLE_ORDER
+              .filter((roleId) => (army.roleStats?.[roleId]?.count || 0) > 0)
+              .map((roleId) => (
+                <span key={roleId} className="combat-tag">
+                  {roleId} x{army.roleStats?.[roleId]?.currentCount ?? army.roleStats?.[roleId]?.count ?? 0}
+                </span>
+              ))}
+            <span className="combat-tag">matchup x{army.matchup.toFixed(2)}</span>
+          </div>
           <div className="combat-row sub">
             <div className="combat-label">Outgoing</div>
             <div className="combat-value">
@@ -213,18 +236,129 @@ export default function OverviewTab({
           <div className="bar">
             <div style={{ width: `${Math.min(100, (state.clansfolk.armyHP / Math.max(1, state.clansfolk.armyHPMax)) * 100)}%` }} />
           </div>
+          <div className="combat-role-health">
+            {ROLE_ORDER
+              .filter((roleId) => (army.roleStats?.[roleId]?.count || 0) > 0)
+              .map((roleId) => {
+                const role = army.roleStats?.[roleId];
+                const health = state.warband?.health?.[roleId] || { hp: 0, hpMax: 0 };
+                const fill = health.hpMax > 0 ? (health.hp / health.hpMax) * 100 : 0;
+                return (
+                  <div key={roleId} className="combat-role-health-row">
+                    <div className="combat-role-health-head">
+                      <span>{role.currentCount} / {role.count} {WARBAND_ROLES[roleId]?.label || roleId}</span>
+                      <span>{health.hp.toFixed(1)} / {health.hpMax.toFixed(1)} HP</span>
+                    </div>
+                    <div className="bar role">
+                      <div style={{ width: `${Math.max(0, Math.min(100, fill))}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
 
           <div className={`forecast ${forecast.tone}`}>{forecast.text}</div>
+          {!!scoutReport?.length && (
+            <div className="combat-scout">
+              <div className="combat-scout-title">
+                Scout Read
+                {state.world.scouting?.quality && (
+                  <span className="combat-scout-quality">{formatScoutQuality(state.world.scouting.quality)}</span>
+                )}
+              </div>
+              <div className="combat-scout-list">
+                {scoutReport.map((line) => (
+                  <div key={line} className="combat-scout-line">{line}</div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="combat-times">
             <span>TTK {combatTimes.ttk}s</span>
             <span>TTL {combatTimes.ttl}s</span>
           </div>
           <div className={`combat-outcome ${combatTimes.outcomeTone}`}>{combatTimes.outcomeText}</div>
+          {state.world.combatState === 'victory' && state.world.lastVictory && (
+            <div className="combat-resolution">
+              <div className="combat-resolution-title">{state.world.lastVictory.enemyName} broken</div>
+              <div className="combat-resolution-loot">
+                <span>+{state.world.lastVictory.food} food</span>
+                <span>+{state.world.lastVictory.wood} wood</span>
+                {state.world.lastVictory.stone > 0 && <span>+{state.world.lastVictory.stone} stone</span>}
+                {state.world.lastVictory.metal > 0 && <span>+{state.world.lastVictory.metal} metal</span>}
+                {state.world.lastVictory.ash > 0 && <span>+{state.world.lastVictory.ash} ash</span>}
+                {state.world.lastVictory.knowledge > 0 && <span>+{state.world.lastVictory.knowledge} knowledge</span>}
+              </div>
+              {!!Object.keys(state.world.lastVictory.losses || {}).length && (
+                <div className="combat-resolution-losses">
+                  {ROLE_ORDER
+                    .filter((roleId) => (state.world.lastVictory.losses?.[roleId] || 0) > 0)
+                    .map((roleId) => (
+                      <span key={roleId}>-{state.world.lastVictory.losses[roleId]} {WARBAND_ROLES[roleId]?.label || roleId}</span>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+          {state.world.combatState === 'defeat' && state.world.lastDefeat && (
+            <div className="combat-resolution defeat">
+              <div className="combat-resolution-title">Warband broken by {state.world.lastDefeat.enemyName}</div>
+              {!!Object.keys(state.world.lastDefeat.losses || {}).length && (
+                <div className="combat-resolution-losses">
+                  {ROLE_ORDER
+                    .filter((roleId) => (state.world.lastDefeat.losses?.[roleId] || 0) > 0)
+                    .map((roleId) => (
+                      <span key={roleId}>-{state.world.lastDefeat.losses[roleId]} {WARBAND_ROLES[roleId]?.label || roleId}</span>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="combat-actions">
-            <button onClick={startFight} disabled={state.world.fighting || state.clansfolk.army <= 0}>Fight</button>
-            <button className="secondary" onClick={scout}>Scout</button>
+            <button onClick={state.world.combatState === 'victory' ? advanceFight : startFight} disabled={state.world.fighting || state.clansfolk.army <= 0}>
+              {state.world.combatState === 'victory' ? 'Advance' : 'Fight'}
+            </button>
+            <button className="secondary" onClick={scout} disabled={state.world.scouting?.active || state.world.fighting || state.clansfolk.army <= 0}>Scout</button>
             <button className="ghost" onClick={stopFight} disabled={!state.world.fighting}>Retreat</button>
           </div>
+          <div className="combat-scout-controls">
+            <span>Scout Party</span>
+            <div className="assign-buttons">
+              {[1, 3, 5].map((size) => (
+                <button
+                  key={size}
+                  className={`mini ${scoutSend === size ? 'selected' : ''}`}
+                  onClick={() => setScoutSend(size)}
+                  disabled={state.world.scouting?.active || size > (state.warband?.roles?.melee || 0)}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+            <span>Melee available {state.warband?.roles?.melee || 0}</span>
+            {state.world.scouting?.active && (
+              <strong>Returning in {Math.ceil(state.world.scouting.timeLeft)}s</strong>
+            )}
+          </div>
+          <div className="combat-plan">
+            {battlePlans.map((plan) => (
+              <button
+                key={plan.id}
+                className={`mini ${state.ui?.battlePlan === plan.id ? 'selected' : ''}`}
+                onClick={() => setBattlePlan(plan.id)}
+              >
+                {plan.label}
+              </button>
+            ))}
+          </div>
+          <div className="combat-plan-desc">
+            {battlePlans.find((plan) => plan.id === (state.ui?.battlePlan || 'hold'))?.desc}
+          </div>
+          {recommendedBattlePlan && (
+            <div className="combat-plan-recommendation">
+              <strong>Recommended:</strong> {recommendedBattlePlan.label} - {recommendedBattlePlan.reason}
+            </div>
+          )}
           <div className="combat-stance">
             {['aggressive', 'balanced', 'defensive'].map(stance => (
               <button
@@ -404,6 +538,12 @@ export default function OverviewTab({
   );
 }
 
+function formatScoutQuality(quality) {
+  if (quality === 'full') return 'precise';
+  if (quality === 'mid') return 'partial';
+  return 'rough';
+}
+
 function getEncounterVisual(state, army) {
   const zone = Math.max(1, state.world.zone || 1);
   const enemyIndex = Math.max(1, state.world.enemyIndex || 1);
@@ -417,9 +557,9 @@ function getEncounterVisual(state, army) {
     { title: 'Grave Guard', subtitle: 'slow crushing advance', weather: 'Still air', front: 'Heavy pressure', roles: ['brute', 'shield', 'shield'] }
   ];
   const theme = themes[(zone + enemyIndex - 1) % themes.length];
-  const allyCount = Math.max(2, Math.min(5, Math.ceil((state.clansfolk.army || 0) / 3)));
-  const enemyCount = Math.max(2, Math.min(4, 2 + ((zone + enemyIndex) % 3)));
-  const allyRoles = getAllyRoles(state.ui?.combatStance || 'balanced', allyCount);
+  const allyCount = Math.max(1, Math.min(5, Object.values(army.roleStats || {}).reduce((sum, role) => sum + (role.currentCount || 0), 0)));
+  const enemyCount = Math.max(1, Math.min(5, state.world.enemyCount || (2 + ((zone + enemyIndex) % 3))));
+  const allyRoles = getAllyRoles(army, state.ui?.combatStance || 'balanced', allyCount);
   const enemyRoles = Array.from({ length: enemyCount }, (_, index) => theme.roles[index % theme.roles.length]);
 
   return {
@@ -435,13 +575,34 @@ function getEncounterVisual(state, army) {
   };
 }
 
-function getAllyRoles(stance, count) {
-  const roleSets = {
-    aggressive: ['raider', 'raider', 'brute', 'skirmish', 'skirmish'],
-    defensive: ['shield', 'shield', 'brute', 'raider', 'skirmish'],
-    balanced: ['shield', 'raider', 'brute', 'skirmish', 'raider']
+function getAllyRoles(army, stance, count) {
+  const pool = [];
+  const roleMap = {
+    melee: 'raider',
+    bowmen: 'skirmish',
+    horsemen: 'raider',
+    spearmen: 'shield',
+    heavy: 'brute'
   };
-  return roleSets[stance].slice(0, count);
+  ROLE_ORDER.forEach((roleId) => {
+    const currentCount = army.roleStats?.[roleId]?.currentCount || 0;
+    const visualCount = Math.max(0, Math.min(5, currentCount));
+    for (let i = 0; i < visualCount; i += 1) {
+      pool.push(roleMap[roleId] || 'raider');
+    }
+  });
+  if (pool.length === 0) return ['shield'];
+  const ordered = orderAllyRolesByStance(pool, stance);
+  return ordered.slice(0, count);
+}
+
+function orderAllyRolesByStance(roles, stance) {
+  const order = stance === 'aggressive'
+    ? ['brute', 'raider', 'shield', 'skirmish']
+    : stance === 'defensive'
+      ? ['shield', 'brute', 'raider', 'skirmish']
+      : ['shield', 'raider', 'brute', 'skirmish'];
+  return [...roles].sort((a, b) => order.indexOf(a) - order.indexOf(b));
 }
 
 function buildFormation(roles, side) {

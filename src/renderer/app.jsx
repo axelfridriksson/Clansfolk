@@ -4,14 +4,18 @@ import frozenBg from './assets/images/Frozen.png';
 import hellBg from './assets/images/hellvibes.png';
 import { BLACKSMITH_ITEMS, BUILDINGS, UPGRADES, PATRONS, RITES_BUILDINGS } from './data.js';
 import { SAVE_KEY, START_STATE } from './models.js';
-import { calcCaps, calcRates, getArmyStats, canAfford, applyCost, loadSave, mergeSave, nextEnemy, totalJobs } from './systems.js';
+import { calcCaps, calcRates, getArmyStats, canAfford, applyCost, loadSave, mergeSave, nextEnemy, normalizeWarbandRoles, reconcileWarbandHealth, totalJobs } from './systems.js';
 import { simulateTick } from './sim.js';
 import AppHeader from './components/AppHeader.jsx';
 import LeftColumn from './components/LeftColumn.jsx';
 import OverviewTab from './components/OverviewTab.jsx';
 import WarcampTab from './components/WarcampTab.jsx';
+import CommandCenterTab from './components/CommandCenterTab.jsx';
 import RitesTab from './components/RitesTab.jsx';
 import TravelTab from './components/TravelTab.jsx';
+import { getScoutReport } from './combat/scouting.js';
+import { getUnlockedWarbandRoles, ROLE_SLOT_LABELS, WARBAND_ROLES } from './combat/roles.js';
+import { COMMANDER_CHARTERS, COMMANDER_DEFS, getCharterPool } from './commanders/data.js';
 import chant1 from './assets/audio/sfx/chant1.wav';
 import chant2 from './assets/audio/sfx/chant2.wav';
 import chant3 from './assets/audio/sfx/chant3.wav';
@@ -33,7 +37,13 @@ const RESOURCE_JOBS = {
 export default function App() {
   const [state, setState] = useState(() => {
     const saved = loadSave(SAVE_KEY);
-    return saved ? mergeSave(START_STATE, saved) : START_STATE;
+    const base = saved ? mergeSave(START_STATE, saved) : structuredClone(START_STATE);
+    base.warband.roles = normalizeWarbandRoles(base.clansfolk.army, base.warband?.roles);
+    const stats = getArmyStats(base);
+    base.warband.health = reconcileWarbandHealth(base.warband?.health, stats.roleStats, base.clansfolk.army > 0);
+    base.clansfolk.armyHPMax = Object.values(base.warband.health).reduce((sum, role) => sum + role.hpMax, 0);
+    base.clansfolk.armyHP = Object.values(base.warband.health).reduce((sum, role) => sum + role.hp, 0);
+    return base;
   });
   const [tooltip, setTooltip] = useState(null);
   const [assignStep, setAssignStep] = useState(1);
@@ -57,23 +67,20 @@ export default function App() {
     () => getResourceNetRates(state, rates),
     [rates, state.buildings, state.clansfolk.total, state.unlocks, state.world?.overcrowdingFoodMult]
   );
-  const army = useMemo(() => getArmyStats(state), [state.clansfolk, state.jobs, state.perks, state.equipment, state.ui?.combatStance, state.religion]);
+  const army = useMemo(() => getArmyStats(state), [state.clansfolk, state.jobs, state.perks, state.equipment, state.warband, state.warband?.health, state.ui?.combatStance, state.religion, state.world?.enemyArchetype]);
   const travelPartyCap = useMemo(() => getTravelPartyCap(state), [state.upgrades]);
   const activeTab = state.ui?.tab || 'overview';
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'warcamp', label: 'Warcamp', requires: () => (state.buildings.warcamp || 0) > 0 },
+    { id: 'command', label: 'Command', requires: () => (state.buildings.warcamp || 0) > 0 },
     { id: 'rites', label: 'Rites', requires: () => state.unlocks.ash },
     { id: 'travel', label: 'Travel' }
   ];
   const blacksmithItems = Object.entries(BLACKSMITH_ITEMS)
     .map(([id, item]) => ({ id, ...item }))
     .filter(item => (!item.unlock || state.unlocks[item.unlock]) && state.unlocks.blacksmith);
-  const equipSlots = [
-    { id: 'weapon', label: 'Weapon' },
-    { id: 'shield', label: 'Shield' },
-    { id: 'armor', label: 'Armor' }
-  ];
+  const availableBlacksmithRoles = getUnlockedWarbandRoles(state);
   const equipmentTiers = [
     {
       id: 'wood',
@@ -94,12 +101,18 @@ export default function App() {
     }
   ];
   const availableBlacksmithTiers = equipmentTiers.filter(tier => !tier.unlock || state.unlocks[tier.unlock]);
+  const selectedBlacksmithRole = availableBlacksmithRoles.includes(state.ui?.blacksmithRole)
+    ? state.ui.blacksmithRole
+    : (availableBlacksmithRoles[0] || 'melee');
+  const equipSlots = (WARBAND_ROLES[selectedBlacksmithRole]?.slots || []).map((id) => ({
+    id,
+    label: ROLE_SLOT_LABELS[id] || id
+  }));
   const selectedBlacksmithTier = availableBlacksmithTiers.find(tier => tier.id === state.ui?.blacksmithTier)
     ? state.ui.blacksmithTier
     : (availableBlacksmithTiers[0]?.id || 'wood');
   const blacksmithItemsByTier = blacksmithItems.filter(item => {
-    const tier = equipmentTiers.find(entry => entry.items.includes(item.id));
-    return tier?.id === selectedBlacksmithTier;
+    return item.role === selectedBlacksmithRole && item.tierGroup === selectedBlacksmithTier;
   });
   const ritesBuildings = Object.entries(RITES_BUILDINGS).map(([id, data]) => ({ id, ...data }));
   const patron = PATRONS.find(entry => entry.id === state.religion?.patron);
@@ -144,6 +157,10 @@ export default function App() {
   const cycleTime = formatTime(state.time);
   const modifiers = getWorldModifiers(state);
   const forecasts = getForecasts(state, caps, rates);
+  const scoutReport = state.world.scouting?.report?.length
+    ? state.world.scouting.report
+    : [];
+  const recommendedBattlePlan = getRecommendedBattlePlan(state);
   const milestones = getMilestones(state);
   const scene = getCombatScene(state, zoneProgress);
   const enemyAtk = state.world.enemyAtk;
@@ -169,6 +186,14 @@ export default function App() {
 
   function pushLog(line) {
     setState(prev => ({ ...prev, log: [line, ...prev.log].slice(0, 40) }));
+  }
+
+  function syncWarbandVitals(next, resetToFull = false) {
+    const stats = getArmyStats(next);
+    next.warband = { ...next.warband, health: reconcileWarbandHealth(next.warband?.health, stats.roleStats, resetToFull) };
+    next.clansfolk.armyHPMax = Object.values(next.warband.health).reduce((sum, role) => sum + role.hpMax, 0);
+    next.clansfolk.armyHP = Object.values(next.warband.health).reduce((sum, role) => sum + role.hp, 0);
+    return next;
   }
 
   /**
@@ -199,10 +224,7 @@ export default function App() {
         return prev;
       }
       if (next.clansfolk.army > 0) {
-        const stats = getArmyStats(next);
-        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
-        next.clansfolk.armyHPMax = stats.hp;
-        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+        syncWarbandVitals(next);
       }
       return next;
     });
@@ -269,7 +291,7 @@ export default function App() {
             next.upgrades[type] = nextLevel;
           }
         } else {
-          next.buildings[type] += 1;
+          next.buildings[type] = (next.buildings[type] || 0) + 1;
         }
 
         purchases += 1;
@@ -292,10 +314,7 @@ export default function App() {
       }
 
       if (next.clansfolk.army > 0) {
-        const stats = getArmyStats(next);
-        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
-        next.clansfolk.armyHPMax = stats.hp;
-        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+        syncWarbandVitals(next);
       }
       return next;
     });
@@ -371,6 +390,10 @@ export default function App() {
       const duration = Math.max(15, Math.round((baseDuration + zoneTax) * travelSpeed));
       return {
         ...prev,
+        warband: {
+          ...prev.warband,
+          roles: normalizeWarbandRoles(Math.max(0, prev.clansfolk.army - send), prev.warband?.roles)
+        },
         world: {
           ...prev.world,
           expedition: {
@@ -643,14 +666,15 @@ export default function App() {
       const current = next.equipment[id] || 0;
       const item = BLACKSMITH_ITEMS[id];
       if (!item) return prev;
+      const roleCapacity = Math.max(0, next.warband?.roles?.[item.role] || 0);
       const slotEquipped = Object.entries(next.equipment).reduce((sum, [equipId, count]) => {
         const equipItem = BLACKSMITH_ITEMS[equipId];
-        if (!equipItem || equipItem.slot !== item.slot) return sum;
+        if (!equipItem || equipItem.slot !== item.slot || equipItem.role !== item.role) return sum;
         return sum + count;
       }, 0);
       if (delta > 0) {
         const available = next.inventory[id] || 0;
-        const maxEquip = Math.max(0, capacity - slotEquipped);
+        const maxEquip = Math.max(0, roleCapacity - slotEquipped);
         const add = Math.min(delta, available, maxEquip);
         if (add <= 0) return prev;
         next.inventory[id] = available - add;
@@ -664,10 +688,7 @@ export default function App() {
         return prev;
       }
       if (next.clansfolk.army > 0) {
-        const stats = getArmyStats(next);
-        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
-        next.clansfolk.armyHPMax = stats.hp;
-        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+        syncWarbandVitals(next);
       }
       return next;
     });
@@ -684,11 +705,11 @@ export default function App() {
         equipment: { ...prev.equipment },
         clansfolk: { ...prev.clansfolk }
       };
-      const capacity = Math.max(0, next.clansfolk.army || 0);
-      const slots = ['weapon', 'shield', 'armor'];
+      const capacity = Math.max(0, next.warband?.roles?.[selectedBlacksmithRole] || 0);
+      const slots = WARBAND_ROLES[selectedBlacksmithRole]?.slots || [];
       slots.forEach(slot => {
         const slotItems = blacksmithItems
-          .filter(item => item.slot === slot)
+          .filter(item => item.role === selectedBlacksmithRole && item.slot === slot)
           .sort((a, b) => ((b.atk || 0) + (b.hp || 0)) - ((a.atk || 0) + (a.hp || 0)));
         let remaining = capacity;
         slotItems.forEach(item => {
@@ -700,10 +721,7 @@ export default function App() {
         });
       });
       if (next.clansfolk.army > 0) {
-        const stats = getArmyStats(next);
-        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
-        next.clansfolk.armyHPMax = stats.hp;
-        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+        syncWarbandVitals(next);
       }
       return next;
     });
@@ -723,8 +741,8 @@ export default function App() {
         clansfolk: { ...prev.clansfolk },
         ui: { ...prev.ui, equipChoice: { ...(prev.ui?.equipChoice || {}) } }
       };
-      const capacity = Math.max(0, next.clansfolk.maxArmy || 0);
-      const slotItems = blacksmithItems.filter(item => item.slot === slot);
+      const capacity = Math.max(0, next.warband?.roles?.[selectedBlacksmithRole] || 0);
+      const slotItems = blacksmithItems.filter(item => item.role === selectedBlacksmithRole && item.slot === slot);
       slotItems.forEach(item => {
         const equipped = next.equipment[item.id] || 0;
         if (equipped > 0) {
@@ -734,7 +752,7 @@ export default function App() {
       });
       if (itemId) {
         const item = BLACKSMITH_ITEMS[itemId];
-        if (!item || item.slot !== slot) return prev;
+        if (!item || item.slot !== slot || item.role !== selectedBlacksmithRole) return prev;
         const available = next.inventory[itemId] || 0;
         const equipCount = Math.min(capacity, available);
         next.inventory[itemId] = available - equipCount;
@@ -742,10 +760,7 @@ export default function App() {
       }
       next.ui.equipChoice[slot] = itemId || '';
       if (next.clansfolk.army > 0) {
-        const stats = getArmyStats(next);
-        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
-        next.clansfolk.armyHPMax = stats.hp;
-        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+        syncWarbandVitals(next);
       }
       return next;
     });
@@ -758,7 +773,7 @@ export default function App() {
     setState(prev => {
       const choices = prev.ui?.equipChoice || {};
       let next = prev;
-      const capacity = Math.max(0, prev.clansfolk.army || 0);
+      const capacity = Math.max(0, prev.warband?.roles?.[selectedBlacksmithRole] || 0);
       equipSlots.forEach(slot => {
         next = {
           ...next,
@@ -768,7 +783,7 @@ export default function App() {
           ui: { ...next.ui }
         };
         const itemId = choices[slot.id] || '';
-        const slotItems = blacksmithItems.filter(item => item.slot === slot.id);
+        const slotItems = blacksmithItems.filter(item => item.role === selectedBlacksmithRole && item.slot === slot.id);
         slotItems.forEach(item => {
           const equipped = next.equipment[item.id] || 0;
           if (equipped > 0) {
@@ -778,7 +793,7 @@ export default function App() {
         });
         if (itemId) {
           const item = BLACKSMITH_ITEMS[itemId];
-          if (item && item.slot === slot.id) {
+          if (item && item.role === selectedBlacksmithRole && item.slot === slot.id) {
             const available = next.inventory[itemId] || 0;
             const equipCount = Math.min(capacity, available);
             next.inventory[itemId] = available - equipCount;
@@ -787,10 +802,7 @@ export default function App() {
         }
       });
       if (next.clansfolk.army > 0) {
-        const stats = getArmyStats(next);
-        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
-        next.clansfolk.armyHPMax = stats.hp;
-        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+        syncWarbandVitals(next);
       }
       return next;
     });
@@ -808,11 +820,11 @@ export default function App() {
         equipment: { ...prev.equipment },
         clansfolk: { ...prev.clansfolk }
       };
-      const capacity = Math.max(0, next.clansfolk.army || 0);
+      const capacity = Math.max(0, next.warband?.roles?.[selectedBlacksmithRole] || 0);
       itemIds.forEach(itemId => {
         const item = BLACKSMITH_ITEMS[itemId];
-        if (!item) return;
-        const slotItems = blacksmithItems.filter(entry => entry.slot === item.slot);
+        if (!item || item.role !== selectedBlacksmithRole) return;
+        const slotItems = blacksmithItems.filter(entry => entry.role === selectedBlacksmithRole && entry.slot === item.slot);
         slotItems.forEach(entry => {
           const equipped = next.equipment[entry.id] || 0;
           if (equipped > 0) {
@@ -826,10 +838,7 @@ export default function App() {
         next.equipment[itemId] = equipCount;
       });
       if (next.clansfolk.army > 0) {
-        const stats = getArmyStats(next);
-        const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
-        next.clansfolk.armyHPMax = stats.hp;
-        next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+        syncWarbandVitals(next);
       }
       return next;
     });
@@ -841,18 +850,63 @@ export default function App() {
   function startFight() {
     setState(prev => {
       if (prev.clansfolk.army <= 0) return prev;
+      if (prev.world.scouting?.active) return prev;
+      if (prev.world.combatState === 'victory') return prev;
       const enemy = nextEnemy(prev.world.zone, prev.world.enemyIndex || 1, prev.world.enemiesPerZone || 5);
+      const currentArmy = getArmyStats(prev);
+      const combatStartCounts = Object.fromEntries(
+        Object.entries(currentArmy.roleStats || {}).map(([roleId, role]) => [roleId, role.currentCount ?? role.count ?? 0])
+      );
+      const planLabel = prev.ui?.battlePlan === 'press'
+        ? 'Press Forward'
+        : prev.ui?.battlePlan === 'volley'
+          ? 'Volley First'
+          : 'Hold Line';
+      pushLog(`Warband engages under plan: ${planLabel}.`);
       return {
         ...prev,
         world: {
           ...prev.world,
           fighting: true,
+          combatState: 'fighting',
+          lastVictory: null,
+          lastDefeat: null,
           enemyHP: prev.world.enemyHP || enemy.hp,
           enemyHPMax: prev.world.enemyHPMax || enemy.hp,
           enemyAtk: prev.world.enemyAtk || enemy.atk,
           enemyName: enemy.name,
           enemyArchetype: enemy.archetype,
-          enemyTraits: enemy.traits
+          enemyTraits: enemy.traits,
+          enemyCount: enemy.count,
+          enemyForceLabel: enemy.forceLabel,
+          combatStartCounts
+        }
+      };
+    });
+  }
+
+  function startScout() {
+    setState(prev => {
+      if (prev.clansfolk.army <= 0) return prev;
+      if (prev.world.fighting || prev.world.scouting?.active) return prev;
+      const available = Math.max(0, prev.warband?.roles?.melee || 0);
+      if (available <= 0) return prev;
+      const party = Math.max(1, Math.min(5, prev.ui?.scoutSend || 1, available));
+      const duration = party >= 5 ? 15 : party >= 3 ? 10 : 5;
+      pushLog(`Scouts dispatched: ${party} melee for ${duration}s.`);
+      return {
+        ...prev,
+        world: {
+          ...prev.world,
+          scouting: {
+            active: true,
+            timeLeft: duration,
+            duration,
+            party,
+            casualties: 0,
+            report: [],
+            quality: null
+          }
         }
       };
     });
@@ -862,7 +916,102 @@ export default function App() {
    * Stop combat without changing warband.
    */
   function stopFight() {
-    setState(prev => ({ ...prev, world: { ...prev.world, fighting: false } }));
+    setState(prev => ({
+      ...prev,
+      world: {
+        ...prev.world,
+        fighting: false,
+        combatState: 'idle',
+        lastVictory: null,
+        lastDefeat: null,
+        combatStartCounts: null
+      }
+    }));
+  }
+
+  function advanceFight() {
+    setState(prev => {
+      if (prev.world.combatState !== 'victory') return prev;
+      const next = {
+        ...prev,
+        world: {
+          ...prev.world,
+          fighting: false,
+          combatState: 'idle',
+          lastVictory: null,
+          lastDefeat: null,
+          combatStartCounts: null
+        }
+      };
+      const enemiesPerZone = prev.world.enemiesPerZone || 5;
+      if ((prev.world.enemyIndex || 1) < enemiesPerZone) {
+        next.world.enemyIndex = (prev.world.enemyIndex || 1) + 1;
+        const enemy = nextEnemy(prev.world.zone, next.world.enemyIndex, enemiesPerZone);
+        next.world.enemyHP = enemy.hp;
+        next.world.enemyHPMax = enemy.hp;
+        next.world.enemyAtk = enemy.atk;
+        next.world.enemyName = enemy.name;
+        next.world.enemyArchetype = enemy.archetype;
+        next.world.enemyTraits = enemy.traits;
+        next.world.enemyCount = enemy.count;
+        next.world.enemyForceLabel = enemy.forceLabel;
+        pushLog(`Advance to encounter ${next.world.enemyIndex} of ${enemiesPerZone}.`);
+      } else {
+        next.world.zone = prev.world.zone + 1;
+        next.world.enemyIndex = 1;
+        next.world.enemiesPerZone = next.world.zone <= 10 ? 5 : 5 + Math.floor((next.world.zone - 10) / 5);
+        const enemy = nextEnemy(next.world.zone, next.world.enemyIndex, next.world.enemiesPerZone);
+        next.world.enemyHP = enemy.hp;
+        next.world.enemyHPMax = enemy.hp;
+        next.world.enemyAtk = enemy.atk;
+        next.world.enemyName = enemy.name;
+        next.world.enemyArchetype = enemy.archetype;
+        next.world.enemyTraits = enemy.traits;
+        next.world.enemyCount = enemy.count;
+        next.world.enemyForceLabel = enemy.forceLabel;
+        next.command = { ...prev.command, seals: (prev.command?.seals || 0) + (6 + prev.world.zone * 2) };
+        pushLog(`Zone ${prev.world.zone} cleared. Advancing to Zone ${next.world.zone}.`);
+        pushLog(`Recovered ${6 + prev.world.zone * 2} Command Seals.`);
+      }
+      return next;
+    });
+  }
+
+  function recruitCommander(charterId) {
+    setState(prev => {
+      const charter = COMMANDER_CHARTERS[charterId];
+      if (!charter) return prev;
+      if ((prev.buildings.commander || 0) <= 0) return prev;
+      if ((prev.command?.seals || 0) < charter.cost) return prev;
+      const pool = getCharterPool(charter.minRarity);
+      if (!pool.length) return prev;
+      const roll = pool[Math.floor(Math.random() * pool.length)];
+      const alreadyOwned = (prev.command?.ownedIds || []).includes(roll.id);
+      const refund = alreadyOwned ? Math.max(10, Math.floor(charter.cost * 0.5)) : 0;
+      const nextOwned = alreadyOwned ? (prev.command?.ownedIds || []) : [...(prev.command?.ownedIds || []), roll.id];
+      const next = {
+        ...prev,
+        command: {
+          ...prev.command,
+          seals: (prev.command?.seals || 0) - charter.cost + refund,
+          ownedIds: nextOwned,
+          lastRecruit: {
+            id: roll.id,
+            name: roll.name,
+            rarity: roll.rarity,
+            role: roll.role,
+            duplicate: alreadyOwned,
+            refund
+          }
+        }
+      };
+      pushLog(
+        alreadyOwned
+          ? `${roll.name} was already in your roster. ${refund} Command Seals recovered.`
+          : `${roll.name} recruited from a ${charter.label}.`
+      );
+      return next;
+    });
   }
 
   /**
@@ -870,7 +1019,17 @@ export default function App() {
    */
   function sendArmy() {
     setState(prev => {
-      const next = { ...prev, clansfolk: { ...prev.clansfolk }, equipment: { ...prev.equipment }, inventory: { ...prev.inventory } };
+      const next = {
+        ...prev,
+        clansfolk: { ...prev.clansfolk },
+        warband: {
+          ...prev.warband,
+          roles: { ...prev.warband?.roles },
+          health: { ...prev.warband?.health }
+        },
+        equipment: { ...prev.equipment },
+        inventory: { ...prev.inventory }
+      };
       if (next.clansfolk.idle <= 0) return prev;
       const space = next.clansfolk.maxArmy - next.clansfolk.army;
       if (space <= 0) return prev;
@@ -882,16 +1041,23 @@ export default function App() {
       next.clansfolk.army += add;
       next.clansfolk.total = Math.max(0, next.clansfolk.total - add);
       next.clansfolk.idle = Math.max(0, next.clansfolk.total - totalJobs(next.jobs));
+      next.warband.roles.melee = Math.max(0, (next.warband.roles.melee || 0) + add);
+      next.warband.roles = normalizeWarbandRoles(next.clansfolk.army, next.warband.roles);
       Object.keys(next.equipment).forEach(key => {
-        if (next.equipment[key] > next.clansfolk.army) {
-          const excess = next.equipment[key] - next.clansfolk.army;
-          next.equipment[key] = next.clansfolk.army;
+        const item = BLACKSMITH_ITEMS[key];
+        const roleCap = item ? (next.warband?.roles?.[item.role] || 0) : next.clansfolk.army;
+        if (next.equipment[key] > roleCap) {
+          const excess = next.equipment[key] - roleCap;
+          next.equipment[key] = roleCap;
           next.inventory[key] = (next.inventory[key] || 0) + excess;
         }
       });
-      const stats = getArmyStats(next);
-      next.clansfolk.armyHPMax = stats.hp;
-      next.clansfolk.armyHP = stats.hp;
+      const oldHealth = { ...next.warband.health };
+      syncWarbandVitals(next);
+      const meleeHpGain = Math.max(0, next.warband.health.melee.hpMax - (oldHealth.melee?.hpMax || 0));
+      next.warband.health.melee.hp = Math.min(next.warband.health.melee.hpMax, (oldHealth.melee?.hp || 0) + meleeHpGain);
+      next.clansfolk.armyHPMax = Object.values(next.warband.health).reduce((sum, role) => sum + role.hpMax, 0);
+      next.clansfolk.armyHP = Object.values(next.warband.health).reduce((sum, role) => sum + role.hp, 0);
       return next;
     });
   }
@@ -901,13 +1067,24 @@ export default function App() {
    */
   function recallArmy() {
     setState(prev => {
-      const next = { ...prev, clansfolk: { ...prev.clansfolk }, equipment: { ...prev.equipment }, inventory: { ...prev.inventory } };
+      const next = {
+        ...prev,
+        clansfolk: { ...prev.clansfolk },
+        warband: {
+          ...prev.warband,
+          roles: { ...prev.warband?.roles },
+          health: Object.fromEntries(Object.keys(prev.warband?.health || {}).map((roleId) => [roleId, { hp: 0, hpMax: 0 }]))
+        },
+        equipment: { ...prev.equipment },
+        inventory: { ...prev.inventory }
+      };
       if (next.clansfolk.army <= 0) return prev;
       next.clansfolk.total += next.clansfolk.army;
       next.clansfolk.idle = Math.max(0, next.clansfolk.total - totalJobs(next.jobs));
       next.clansfolk.army = 0;
       next.clansfolk.armyHP = 0;
       next.clansfolk.armyHPMax = 0;
+      next.warband.roles = normalizeWarbandRoles(0, next.warband.roles);
       Object.keys(next.equipment).forEach(key => {
         if (next.equipment[key] > 0) {
           next.inventory[key] = (next.inventory[key] || 0) + next.equipment[key];
@@ -1167,9 +1344,17 @@ export default function App() {
             ...prev,
             ui: { ...prev.ui, warbandSend: nextValue }
           }))}
+          scoutSend={state.ui?.scoutSend || 1}
+          setScoutSend={(nextValue) => setState(prev => ({
+            ...prev,
+            ui: { ...prev.ui, scoutSend: nextValue }
+          }))}
           startFight={startFight}
+          advanceFight={advanceFight}
           stopFight={stopFight}
-          scout={() => pushLog('Scouted the zone.')}
+          scout={startScout}
+          scoutReport={scoutReport}
+          recommendedBattlePlan={recommendedBattlePlan}
           setCombatStance={(stance) => setState(prev => {
             const next = {
               ...prev,
@@ -1177,13 +1362,14 @@ export default function App() {
               clansfolk: { ...prev.clansfolk }
             };
             if (next.clansfolk.army > 0) {
-              const stats = getArmyStats(next);
-              const ratio = next.clansfolk.armyHPMax > 0 ? next.clansfolk.armyHP / next.clansfolk.armyHPMax : 1;
-              next.clansfolk.armyHPMax = stats.hp;
-              next.clansfolk.armyHP = Math.min(stats.hp, Math.max(0, stats.hp * ratio));
+              syncWarbandVitals(next);
             }
             return next;
           })}
+          setBattlePlan={(plan) => setState(prev => ({
+            ...prev,
+            ui: { ...prev.ui, battlePlan: plan }
+          }))}
           prestige={prestige}
           craftRune={craftRune}
           formatTime={formatTime}
@@ -1195,6 +1381,8 @@ export default function App() {
           equipSlots={equipSlots}
           equipmentTiers={equipmentTiers}
           blacksmithItems={blacksmithItems}
+          availableBlacksmithRoles={availableBlacksmithRoles}
+          selectedBlacksmithRole={selectedBlacksmithRole}
           availableBlacksmithTiers={availableBlacksmithTiers}
           selectedBlacksmithTier={selectedBlacksmithTier}
           blacksmithItemsByTier={blacksmithItemsByTier}
@@ -1202,13 +1390,54 @@ export default function App() {
           adjustEquip={adjustEquip}
           autoEquip={autoEquip}
           craftItem={craftItem}
+          setWarbandRole={(roleId, delta) => setState(prev => {
+            const next = {
+              ...prev,
+              warband: { ...prev.warband, roles: { ...prev.warband?.roles } },
+              clansfolk: { ...prev.clansfolk }
+            };
+            const totalArmy = Math.max(0, prev.clansfolk.army || 0);
+            const current = next.warband.roles[roleId] || 0;
+            const melee = next.warband.roles.melee || 0;
+            if (roleId === 'melee') return prev;
+            if (delta > 0) {
+              if (melee <= 0) return prev;
+              next.warband.roles[roleId] = current + 1;
+              next.warband.roles.melee = Math.max(0, melee - 1);
+            } else if (delta < 0) {
+              if (current <= 0) return prev;
+              next.warband.roles[roleId] = current - 1;
+              next.warband.roles.melee = Math.min(totalArmy, melee + 1);
+            }
+            next.warband.roles = normalizeWarbandRoles(totalArmy, next.warband.roles);
+            if (next.clansfolk.army > 0) syncWarbandVitals(next);
+            return next;
+          })}
           onSetCraftStep={(step) => setState(prev => ({
             ...prev,
             ui: { ...prev.ui, craftStep: step }
           }))}
+          onSetBlacksmithRole={(roleId) => setState(prev => ({
+            ...prev,
+            ui: { ...prev.ui, blacksmithRole: roleId }
+          }))}
           onSetBlacksmithTier={(tierId) => setState(prev => ({
             ...prev,
             ui: { ...prev.ui, blacksmithTier: tierId }
+          }))}
+        />
+        ) : activeTab === 'command' ? (
+        <CommandCenterTab
+          state={state}
+          army={army}
+          recruitCommander={recruitCommander}
+          build={build}
+          getScaledCost={getScaledCost}
+          getScale={getScale}
+          applyWoodDiscount={applyWoodDiscount}
+          setActiveCommander={(commanderId) => setState(prev => ({
+            ...prev,
+            command: { ...prev.command, activeId: commanderId }
           }))}
         />
         ) : activeTab === 'rites' && state.unlocks.ash ? (
@@ -1270,6 +1499,28 @@ export default function App() {
       </div>
     </>
   );
+}
+
+function getRecommendedBattlePlan(state) {
+  const quality = state.world.scouting?.quality;
+  if (!quality) return null;
+  const archetype = state.world.enemyArchetype || 'raider';
+  const bowmen = state.warband?.roles?.bowmen || 0;
+  const enemyCount = state.world.enemyCount || 1;
+
+  if ((archetype === 'skirmish' || archetype === 'beast') && bowmen > 0) {
+    return { id: 'volley', label: 'Volley First', reason: 'Bowmen should punish this force early.' };
+  }
+  if (archetype === 'shield' || archetype === 'brute' || archetype === 'captain') {
+    return { id: 'hold', label: 'Hold Line', reason: 'This enemy wants a grind. Do not overextend.' };
+  }
+  if (archetype === 'raider' && enemyCount <= 4) {
+    return { id: 'press', label: 'Press Forward', reason: 'Light raiders are vulnerable to a hard push.' };
+  }
+  if (enemyCount >= 5) {
+    return { id: 'hold', label: 'Hold Line', reason: 'Large groups are safer to absorb before committing.' };
+  }
+  return { id: 'hold', label: 'Hold Line', reason: 'Default to a stable line until you see a better opening.' };
 }
 
 /**
@@ -1670,6 +1921,7 @@ function getStageState(stage) {
     base.clansfolk.total = 200;
     base.clansfolk.idle = 180;
     base.clansfolk.army = 20;
+    base.warband.roles = normalizeWarbandRoles(base.clansfolk.army, base.warband.roles);
     base.buildings = {
       grasshut: 20,
       timberhall: 10,
